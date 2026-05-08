@@ -21,7 +21,7 @@
   - type: MusicTape 
     sound: /Audio/Jukebox/title3.ogg
   - type: Sprite
-    sprite: Objects/Specific/Fun/tapes.rsi
+    sprite: Objects/Fun/tapes.rsi
     state: tape_blue
   - type: Tag
     tags:
