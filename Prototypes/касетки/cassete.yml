@@ -7,7 +7,7 @@
   components:
   - type: MusicTape 
   - type: Sprite
-    sprite: Objects/Fun/tapes.rsi 
+    sprite: Objects/Fun/cassette.rsi 
     state: tape_blue
   - type: Tag
     tags:
