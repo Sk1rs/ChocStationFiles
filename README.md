@@ -41,4 +41,4 @@
 
 ## 🌌 ChocoStation 14
 
-Контент-пак для сервера Space Station 14 на базе ChocoStation 14.
+Контент-пак для сервера ChocoStation 14 на базе Space Station 14.
