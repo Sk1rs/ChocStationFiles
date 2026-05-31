@@ -4,7 +4,7 @@ code:
   parent: [ ClothingHeadHardsuitBase, ClothingHeadSuitWithLightBase ]
   id: ClothingHeadHelmetHardsuitHoP
   name: шлем скафандра главы персонала
-  description: описание шлема главы персонала.
+  description: описание шлема скафандра главы персонала.
   components:
   - type: Sprite
     sprite: Clothing/Head/Hardsuits/hop.rsi
