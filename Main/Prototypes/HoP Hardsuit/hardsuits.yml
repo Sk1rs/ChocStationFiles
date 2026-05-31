@@ -1239,8 +1239,8 @@
 - type: entity
   parent: [ClothingOuterHardsuitBase, BaseEngineeringContraband]
   id: ClothingOuterHardsuitHoP
-  name: HoP hardsuit
-  description: DESC.
+  name: скафандр главы персонала
+  description: Скафандр главы персонала защитит лишь от порезов о бумагу и открытого космоса.
   components:
   - type: Sprite
     sprite: Clothing/OuterClothing/Hardsuits/hop.rsi
