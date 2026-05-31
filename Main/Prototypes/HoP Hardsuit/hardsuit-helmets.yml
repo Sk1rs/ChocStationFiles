@@ -1127,8 +1127,8 @@
 - type: entity
   parent: [ ClothingHeadHardsuitBase, ClothingHeadSuitWithLightBase ]
   id: ClothingHeadHelmetHardsuitHoP
-  name: HoP hardsuit helmet
-  description: desc.
+  name: шлем скафандра главы персонала
+  description: описание шлема скафандра главы персонала.
   components:
   - type: Sprite
     sprite: Clothing/Head/Hardsuits/hop.rsi
