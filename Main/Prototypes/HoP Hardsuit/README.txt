@@ -3,8 +3,8 @@ code:
 - type: entity
   parent: [ ClothingHeadHardsuitBase, ClothingHeadSuitWithLightBase ]
   id: ClothingHeadHelmetHardsuitHoP
-  name: HoP hardsuit helmet
-  description: desc.
+  name: шлем скафандра главы персонала
+  description: описание шлема главы персонала.
   components:
   - type: Sprite
     sprite: Clothing/Head/Hardsuits/hop.rsi
@@ -84,8 +84,8 @@ code:
 - type: entity
   parent: [ClothingOuterHardsuitBase, BaseCommandContraband]
   id: ClothingOuterHardsuitHoP
-  name: HoP hardsuit
-  description: DESC.
+  name: скафандр главы персонала
+  description: Скафандр главы персонала защитит лишь от порезов о бумагу и открытого космоса.
   components:
   - type: Sprite
     sprite: Clothing/OuterClothing/Hardsuits/hop.rsi
@@ -122,5 +122,5 @@ code:
     - Hardsuit
     - WhitelistChameleon    
 
-Hop helmet texture: 
+Hop helmet texture: в другом файле
 
