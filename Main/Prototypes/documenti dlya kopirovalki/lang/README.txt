@@ -1,0 +1,1 @@
+кидать все (кроме реадми) по пути: Resources\Locale\ru-RU\_strings\_sunrise\copy-machine

@@ -1,0 +1,1 @@
+Всё содержимое (кроме ридмишки) кидать по пути:\Resources\Documents\_Sunrise\Command
