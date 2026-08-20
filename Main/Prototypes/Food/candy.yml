@@ -1,0 +1,68 @@
+- type: entity
+  parent: BaseItem
+  id: FoodSnackCandyNotCocoaWrapped
+  name: Конфета специального выпуска NanoTrasen
+  description: Подходит для употребления Фелинидами и Таярами. Какао-порошок заменён ароматизаторами.
+  components:
+  - type: Sprite
+    sprite: Objects/Consumable/Food/snacks.rsi
+    scale: 0.6, 0.6
+    state: wrapped_candy
+  - type: Item
+    heldPrefix: candyNotCocoa
+    size: Tiny
+    storedOffset: 1,-1
+  - type: Tag
+    tags:
+      - FoodSnack
+  - type: SpawnItemsOnUse
+    items:
+      - id: CandyNotCocoaTrash
+      - id: FoodSnackcandynotcocoa
+    sound:
+      path: /Audio/Effects/unwrap.ogg
+
+- type: entity
+  parent: FoodSnackBase
+  id: FoodSnackcandynotcocoa
+  name: Конфета специального выпуска NanoTrasen
+  description: Подходит для употребления Фелинидами и Таярами. Какао-порошок заменён ароматизаторами.
+  components:
+  - type: FlavorProfile
+    flavors:
+      - chocolate
+  - type: Sprite
+    state: unwrapped_candy
+    scale: 0.6, 0.6
+  - type: Item
+    heldPrefix: candy-open
+    storedOffset: 1,-2
+  - type: Tag
+    tags:
+      - FoodSnack
+      - ReptilianFood
+  - type: SolutionContainerManager
+    solutions:
+      food:
+        maxVol: 30
+        reagents:
+        - ReagentId: Nutriment
+          Quantity: 10
+          
+- type: entity
+  categories: [ HideSpawnMenu ]
+  parent: FoodPacketTrash
+  id: CandyNotCocoaTrash
+  name: Обёртка от конфеты
+  components:
+  - type: Sprite
+    state: wrapper
+    scale: 0.6, 0.6
+  - type: Item
+    inhandVisuals:
+      left:
+      - state: trash-inhand-left
+        color: "#463027"
+      right:
+      - state: trash-inhand-right
+        color: "#463027"
