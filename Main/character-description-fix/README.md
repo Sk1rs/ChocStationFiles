@@ -2,7 +2,7 @@
 Файл: `Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs`
 
 - `flavor_text.sponsor_only`: `true` → `false` - описание видно всем, не только спонсорам.
-- `flavor_text.length`: `512` → `550` - максимальная длина описания.
+- `flavor_text.length`: `512` → `ххх` - максимальная длина описания.
 
 ## Как применить
 
