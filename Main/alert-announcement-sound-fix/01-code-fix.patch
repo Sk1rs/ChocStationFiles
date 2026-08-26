@@ -1,0 +1,62 @@
+diff --git a/Content.Server/_Sunrise/AnnouncementSpeaker/AnnouncementSpeakerSystem.cs b/Content.Server/_Sunrise/AnnouncementSpeaker/AnnouncementSpeakerSystem.cs
+index 653b4a4728..fcac8323f2 100644
+--- a/Content.Server/_Sunrise/AnnouncementSpeaker/AnnouncementSpeakerSystem.cs
++++ b/Content.Server/_Sunrise/AnnouncementSpeaker/AnnouncementSpeakerSystem.cs
+@@ -155,11 +155,14 @@ public List<EntityUid> GetStationSpeakers(EntityUid station)
+     public async void DispatchAnnouncementToSpeakers(EntityUid station, string message, SoundSpecifier? announcementSound = null, string? announceVoice = null)
+     {
+         var resolvedSound = announcementSound != null ? _audioSystem.ResolveSound(announcementSound) : null;
+-        if (!_isEnabled)
+-            return;
+-        if (!GetVoicePrototype(announceVoice ?? _defaultAnnounceVoice, out var protoVoice))
++
++        // Sunrise-fix: TTS voice being disabled/unavailable shouldn't also silence the plain announcement sound.
++        byte[]? generatedTts = null;
++        if (_isEnabled && GetVoicePrototype(announceVoice ?? _defaultAnnounceVoice, out var protoVoice))
++            generatedTts = await GenerateTtsForAnnouncement(message, protoVoice);
++
++        if (resolvedSound == null && generatedTts == null)
+             return;
+-        var generatedTts = await GenerateTtsForAnnouncement(message, protoVoice);
+ 
+         var queuedAnnouncement = new QueuedAnnouncement(station, message, resolvedSound, announceVoice, generatedTts)
+         {
+@@ -186,11 +189,14 @@ public async void DispatchAnnouncementToSpeakers(EntityUid station, string messa
+     public async void DispatchAnnouncementToAllStations(string message, SoundSpecifier? announcementSound = null, string? announceVoice = null)
+     {
+         var resolvedSound = announcementSound != null ? _audioSystem.ResolveSound(announcementSound) : null;
+-        if (!_isEnabled)
+-            return;
+-        if (!GetVoicePrototype(announceVoice ?? _defaultAnnounceVoice, out var protoVoice))
++
++        // Sunrise-fix: TTS voice being disabled/unavailable shouldn't also silence the plain announcement sound.
++        byte[]? generatedTts = null;
++        if (_isEnabled && GetVoicePrototype(announceVoice ?? _defaultAnnounceVoice, out var protoVoice))
++            generatedTts = await GenerateTtsForAnnouncement(message, protoVoice);
++
++        if (resolvedSound == null && generatedTts == null)
+             return;
+-        var generatedTts = await GenerateTtsForAnnouncement(message, protoVoice);
+ 
+         var stationQuery = EntityQueryEnumerator<StationDataComponent>();
+         while (stationQuery.MoveNext(out var stationUid, out var stationData))
+diff --git a/Content.Server/_Sunrise/TTS/TTSSystem.cs b/Content.Server/_Sunrise/TTS/TTSSystem.cs
+index 46f9e6c176..4ae2da7aeb 100644
+--- a/Content.Server/_Sunrise/TTS/TTSSystem.cs
++++ b/Content.Server/_Sunrise/TTS/TTSSystem.cs
+@@ -179,9 +179,12 @@ private void OnAnnouncementSpeaker(ref AnnouncementSpeakerEvent ev)
+ 
+         if (speakers.Count == 0)
+         {
+-            // Fallback: If no speakers are found, log a warning
+-            // In the future, this could send to a single communications console or similar
+-            Logger.Warning($"No announcement speakers found on station {ToPrettyString(ev.Station)}. Announcement not played: {ev.Message}");
++            // Sunrise-fix: don't let a map with no (working) AnnouncementSpeakerComponent entities
++            // silence alert-level/announcement sounds entirely - play it globally instead.
++            if (ev.AnnouncementSound != null)
++                _audioSystem.PlayGlobal(ev.AnnouncementSound, Filter.Broadcast(), true);
++
++            Logger.Warning($"No announcement speakers found on station {ToPrettyString(ev.Station)}. Played sound globally as fallback: {ev.Message}");
+             return;
+         }
+ 
