@@ -1,1 +1,0 @@
-Все (кроме реадми) кидать по пути : Resources\Prototypes\_Sunrise\DocumentTemplates

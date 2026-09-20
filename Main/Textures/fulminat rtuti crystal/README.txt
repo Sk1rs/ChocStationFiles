@@ -1,1 +1,0 @@
-путь : Lust Station\Resources\Textures\Objects\Misc
