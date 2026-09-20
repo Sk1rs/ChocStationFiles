@@ -1,0 +1,34 @@
+- type: entity
+  parent: BaseItem
+  id: FulminatedMercuryCrystal
+  name: fulminated mercury crystal
+  description: desc.
+  components:
+  - type: Sprite
+    sprite: Objects/Misc/fulminatedmercurycrystal.rsi
+    scale: 0.6, 0.6
+    state: icon
+  - type: Item
+    sprite: Objects/Misc/fulminatedmercurycrystal.rsi
+    size: Tiny
+  - type: Damageable
+    damageContainer: Inorganic
+    damageModifierSet: Glass 
+  - type: Destructible
+    thresholds:
+     - trigger:
+        !type:DamageTrigger
+        damage: 1
+       behaviors:
+       - !type:DoActsBehavior
+        acts: ["Destruction"]
+       - !type:ExplodeBehavior
+  - type: Explosive
+    explosionType: DemolitionCharge
+    totalIntensity: 60
+    intensitySlope: 5
+    maxIntensity: 30
+    canCreateVacuum: false
+  - type: Tag
+    tags:
+    - Payload

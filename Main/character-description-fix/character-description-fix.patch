@@ -1,0 +1,13 @@
+diff --git a/Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs b/Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs
+index b9731a1083..0a1a0f0b5a 100644
+--- a/Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs
++++ b/Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs
+@@ -400,7 +400,7 @@ public static readonly CVarDef<bool>
+     ///     Flavor Profile
+     /// </summary>
+     public static readonly CVarDef<bool> FlavorTextSponsorOnly =
+-        CVarDef.Create("flavor_text.sponsor_only", true, CVar.SERVER | CVar.REPLICATED);
++        CVarDef.Create("flavor_text.sponsor_only", false, CVar.SERVER | CVar.REPLICATED);
+
+     public static readonly CVarDef<int> FlavorTextBaseLength =
+         CVarDef.Create("flavor_text.length", 512, CVar.SERVER | CVar.REPLICATED);

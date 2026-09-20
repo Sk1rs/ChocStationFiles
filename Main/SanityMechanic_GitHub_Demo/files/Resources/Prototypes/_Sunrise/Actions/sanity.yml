@@ -1,0 +1,28 @@
+- type: entity
+  parent: BaseAction
+  id: ActionSanityTreatment
+  name: sanity-treatment-action-name
+  description: sanity-treatment-action-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Action
+    useDelay: 90
+    itemIconStyle: NoItem
+    # Placeholder face/emotion icon - swap for a proper dedicated sprite later.
+    icon:
+      sprite: Mobs/Silicon/station_ai.rsi
+      state: ai_smiley
+  - type: TargetAction
+    range: 2
+    checkCanAccess: true
+  - type: EntityTargetAction
+    canTargetSelf: false
+    # Can't whitelist on Sanity itself - it's a server-only hidden component the client has
+    # no knowledge of, so an EntityWhitelist referencing it would never validate any target
+    # and silently block every use of this action. HumanoidAppearance is networked and is a
+    # reasonable stand-in (every real target has both); SanityTreatmentSystem still checks
+    # for the real Sanity component server-side before doing anything.
+    whitelist:
+      components:
+      - HumanoidAppearance
+    event: !type:SanityTreatmentActionEvent

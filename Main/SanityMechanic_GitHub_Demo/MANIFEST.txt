@@ -1,0 +1,155 @@
+SANITY MECHANIC — FILE MANIFEST
+================================
+
+NEW FILES (just drop them in, same paths):
+--------------------------------------------
+Content.Client/_Sunrise/Sanity/PsychicCritVisualsSystem.cs
+Content.Server/_Sunrise/Sanity/HallucinatingComponent.cs
+Content.Server/_Sunrise/Sanity/HallucinationClonedComponent.cs
+Content.Server/_Sunrise/Sanity/HallucinationSystem.cs
+Content.Server/_Sunrise/Sanity/PsychicCritSystem.cs
+Content.Server/_Sunrise/Sanity/SanityBehaviorSystem.cs
+Content.Server/_Sunrise/Sanity/SanityComponent.cs
+Content.Server/_Sunrise/Sanity/SanityExamineSystem.cs
+Content.Server/_Sunrise/Sanity/SanitySystem.cs
+Content.Server/_Sunrise/Sanity/SanityTreatmentCapableComponent.cs
+Content.Server/_Sunrise/Sanity/SanityTreatmentSystem.cs
+Content.Shared/_Sunrise/Sanity/PsychicCritComponent.cs
+Content.Shared/_Sunrise/Sanity/SanityThreshold.cs
+Content.Shared/_Sunrise/Sanity/SanityTreatmentEvents.cs
+Content.Server/EntityEffects/Effects/SanityCritCureEntityEffectSystem.cs
+Content.Server/EntityEffects/Effects/SanityDrainEntityEffectSystem.cs
+Content.Shared/EntityEffects/Effects/SanityCritCure.cs
+Content.Shared/EntityEffects/Effects/SanityDrain.cs
+Resources/Locale/en-US/_strings/_sunrise/sanity/sanity.ftl
+Resources/Locale/ru-RU/_strings/_sunrise/sanity/sanity.ftl
+Resources/Prototypes/_Sunrise/Actions/sanity.yml
+
+MODIFIED FILES (overwrite the ones in your repo with these — they only
+contain sanity-related changes, nothing else got touched):
+--------------------------------------------
+Content.Shared/Body/Systems/StomachSystem.cs
+    -> added SetSpecialDigestibleExclusive(), used to restrict a patient
+       in psychic crisis to pills only.
+Content.Shared/Eye/VisibilityFlags.cs
+    -> added HallucinationSlotBase, an 8-bit pool of visibility flags so
+       each player's hallucinations are only visible to them.
+Resources/Locale/en-US/_strings/administration/smites.ftl
+Resources/Locale/ru-RU/_strings/administration/smites.ftl
+    -> admin verb text for: lower sanity tier, view sanity, restore
+       sanity, summon hallucination.
+Resources/Prototypes/Roles/Jobs/Medical/chief_medical_officer.yml
+Resources/Prototypes/Roles/Jobs/Wildcards/psychologist.yml
+    -> both jobs get SanityTreatmentCapable, letting them run the
+       treatment session that cures psychic crisis.
+Resources/Prototypes/Reagents/medicine.yml
+    -> Psicodine and Haloperidol now also drain/cure sanity when taken.
+
+NOT INCLUDED ON PURPOSE (do not touch these — unrelated work in progress,
+nothing to do with sanity):
+--------------------------------------------
+Resources/Prototypes/Loadouts/Jobs/Medical/chief_medical_officer.yml (CMO synth loadout)
+Resources/Prototypes/Entities/Mobs/Player/clone.yml
+Resources/Prototypes/Reagents/chemicals.yml (Polyacrylonitrile reagent)
+
+TWO FILES YOU HAVE TO HAND-EDIT
+================================
+These two already have unrelated changes on your end (other features),
+so instead of overwriting them, just add these bits in by hand:
+
+--------------------------------------------
+Content.Shared/_Sunrise/SunriseCCVars/SunriseCCVars.cs
+--------------------------------------------
+Add this CVar wherever you keep the rest (order doesn't matter):
+
+    /*
+     * Sanity
+     */
+
+    public static readonly CVarDef<bool> SanityEnabled =
+        CVarDef.Create("sanity.enabled", true, CVar.SERVER);
+
+--------------------------------------------
+Content.Server/Administration/Systems/AdminVerbSystem.Smites.cs
+--------------------------------------------
+1) Add these usings at the top:
+
+using Content.Server._Sunrise.Sanity;
+using Content.Shared._Sunrise.Sanity;
+using Content.Shared.Humanoid;
+
+2) Add these two dependencies next to the other [Dependency] fields:
+
+    [Dependency] private readonly SanitySystem _sanitySystem = default!;
+    [Dependency] private readonly HallucinationSystem _hallucinationSystem = default!;
+
+3) Add this block anywhere inside AddSmiteVerbs(), e.g. right after
+   args.Verbs.Add(homingRodSlow);:
+
+        if (TryComp<SanityComponent>(args.Target, out var sanityComp))
+        {
+            var lowerSanityName = Loc.GetString("admin-smite-lower-sanity-name").ToLowerInvariant();
+            Verb lowerSanity = new()
+            {
+                Text = lowerSanityName,
+                Category = VerbCategory.Smite,
+                Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/VerbIcons/smite.svg.192dpi.png")),
+                Act = () =>
+                {
+                    _sanitySystem.LowerThresholdByOne(args.Target, sanityComp);
+                },
+                Impact = LogImpact.Medium,
+                Message = string.Join(": ", lowerSanityName, Loc.GetString("admin-smite-lower-sanity-description"))
+            };
+            args.Verbs.Add(lowerSanity);
+
+            var viewSanityName = Loc.GetString("admin-smite-view-sanity-name").ToLowerInvariant();
+            Verb viewSanity = new()
+            {
+                Text = viewSanityName,
+                Category = VerbCategory.Debug,
+                Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/VerbIcons/information.svg.192dpi.png")),
+                Act = () =>
+                {
+                    var value = MathF.Round(sanityComp.CurrentSanity, 1);
+                    var immuneNote = sanityComp.IsMedicalImmune ? " [мед. иммунитет]" : "";
+                    _popup.PopupEntity($"Психика: {value}% ({sanityComp.CurrentThreshold}){immuneNote}", args.Target, args.User);
+                },
+                Impact = LogImpact.Low,
+                Message = string.Join(": ", viewSanityName, Loc.GetString("admin-smite-view-sanity-description"))
+            };
+            args.Verbs.Add(viewSanity);
+
+            var restoreSanityName = Loc.GetString("admin-smite-restore-sanity-name").ToLowerInvariant();
+            Verb restoreSanity = new()
+            {
+                Text = restoreSanityName,
+                Category = VerbCategory.Tricks,
+                Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/AdminActions/rejuvenate.png")),
+                Act = () =>
+                {
+                    _sanitySystem.RestoreSanity(args.Target, sanityComp);
+                },
+                Impact = LogImpact.Medium,
+                Message = string.Join(": ", restoreSanityName, Loc.GetString("admin-smite-restore-sanity-description"))
+            };
+            args.Verbs.Add(restoreSanity);
+        }
+
+        if (HasComp<HumanoidAppearanceComponent>(args.Target))
+        {
+            var summonHallucinationName = Loc.GetString("admin-smite-summon-hallucination-name").ToLowerInvariant();
+            Verb summonHallucination = new()
+            {
+                Text = summonHallucinationName,
+                Category = VerbCategory.Smite,
+                Icon = new SpriteSpecifier.Texture(new("/Textures/Interface/VerbIcons/smite.svg.192dpi.png")),
+                Act = () =>
+                {
+                    _hallucinationSystem.SpawnHallucinationFor(args.Target, args.Target);
+                },
+                Impact = LogImpact.Medium,
+                Message = string.Join(": ", summonHallucinationName, Loc.GetString("admin-smite-summon-hallucination-description"))
+            };
+            args.Verbs.Add(summonHallucination);
+        }

@@ -1,0 +1,179 @@
+- type: entity
+  id: MusicTapeBase
+  parent: BaseItem
+  name: cassette
+  description: description.
+  abstract: true 
+  components:
+  - type: MusicTape 
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi 
+    state: tape_blue
+  - type: Tag
+    tags:
+    - MusicTape
+
+- type: entity
+  id: MusicTapeTest
+  parent: BaseItem 
+  name: testovayacaseta
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/title3.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape
+
+- type: entity
+  id: MusicTapeEnd
+  parent: BaseItem 
+  name: cassette "End"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/End.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_2.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape   
+
+- type: entity
+  id: MusicTapeNewFuture
+  parent: BaseItem 
+  name: cassette "New Future"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/NewFuture.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape 
+
+- type: entity
+  id: MusicTapeAutumnInTheCamps
+  parent: BaseItem 
+  name: cassette "autumn in the camps"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/osenvlagerah.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape 
+
+- type: entity
+  id: MusicTapeInAnOrdinaryCity
+  parent: BaseItem 
+  name: cassette "in an ordinary city"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/InAnOrdinaryCity.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_2.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape   
+
+- type: entity
+  id: MusicTapeNeverByAloneChapaRmx
+  parent: BaseItem 
+  name: cassette "never by alone (chapa rmx)"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/NeverByAloneChapaRmx.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_3.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape  
+
+- type: entity
+  id: MusicTapeChapaNukeThemePianoRmx     
+  parent: BaseItem 
+  name: cassette "Chapa nuke theme piano rmx"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/ChapaNukeThemePianoRmx.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_3.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape    
+
+- type: entity
+  id: MusicTapeEnAnigmaticEncounter    
+  parent: BaseItem 
+  name: cassette "en anigmatic encounter"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/EnAnigmaticEncounter.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape
+
+- type: entity
+  id: MusicTapeSpacStacChapaRmx   
+  parent: BaseItem 
+  name: cassette "spac stac (chapa rmx)"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/SpacStacChapaRmx.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_4.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape 
+
+- type: entity
+  id: MusicTapeAlTheThingsSheeSaid  
+  parent: BaseItem 
+  name: cassette "al the things shee said"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/AlTheThingsSheeSaid.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape 
+
+- type: entity
+  id: MusicTapeSpaceAssholeChapaRmx  
+  parent: BaseItem 
+  name: cassette "space asshole chapa rmx"
+  components:
+  - type: MusicTape 
+    sound: /Audio/Jukebox/SpaceAssholeChapaRmx.ogg
+  - type: Sprite
+    sprite: Objects/Fun/cassette_3.rsi
+    scale: 0.6, 0.6
+    state: tape_blue  
+  - type: Tag
+    tags:
+    - MusicTape           
