@@ -1,0 +1,22 @@
+# Вещи, выдающие польский акцент, пока надеты.
+# Это НЕ отдельные прототипы — блок AddAccentClothing вставляется в уже
+# существующие сущности (у испанского он стоял там же, менялось только
+# значение replacement: spanish -> polish).
+
+# Resources/Prototypes/Entities/Clothing/Head/hats.yml
+#   в сущность ClothingHeadHatSombrero
+  - type: AddAccentClothing
+    accent: ReplacementAccent
+    replacement: polish
+
+# Resources/Prototypes/Entities/Clothing/OuterClothing/misc.yml
+#   в сущность ClothingOuterPonchoClassic
+  - type: AddAccentClothing
+    accent: ReplacementAccent
+    replacement: polish
+
+# Resources/Prototypes/Entities/Clothing/OuterClothing/misc.yml
+#   в сущность ClothingOuterPoncho
+  - type: AddAccentClothing
+    accent: ReplacementAccent
+    replacement: polish
