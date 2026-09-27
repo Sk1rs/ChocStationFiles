@@ -1,0 +1,5 @@
+# Перенесено из Dead Space 14. Атрибуции в исходном репозитории нет.
+- files: ["hissed_xeno.ogg"]
+  license: "Custom"
+  copyright: "Unknown, taken from Dead Space 14 without attribution"
+  source: "https://github.com/dead-space-server/dead-space-14/tree/master/Resources/Audio/_DeadSpace/Sponsor/Sound"

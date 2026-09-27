@@ -1,0 +1,6 @@
+# Перенесено из Dead Space 14: https://github.com/dead-space-server/dead-space-14 (PR #629 "Language").
+# В исходном репозитории атрибуции для этих файлов нет - первоначальный автор и лицензия неизвестны.
+- files: ["dino1.ogg", "dino2.ogg", "dino3.ogg", "robot1.ogg", "robot2.ogg", "spider1.ogg", "spider2.ogg", "spider3.ogg", "сhicken1.ogg", "сhicken2.ogg", "сhicken3.ogg", "сhicken4.ogg"]
+  license: "Custom"
+  copyright: "Unknown, taken from Dead Space 14 without attribution"
+  source: "https://github.com/dead-space-server/dead-space-14/tree/master/Resources/Audio/_DeadSpace/Languages"
