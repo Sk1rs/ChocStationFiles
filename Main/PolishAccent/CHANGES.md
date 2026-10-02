@@ -48,27 +48,13 @@
 | 🗑️ | `Content.Server/Speech/EntitySystems/SpanishAccentSystem.cs` | Логика «вставить `e` перед `s`» и `¿¡`. Польскому не нужна |
 | 🗑️ | `Resources/Locale/*/_strings/accent/spanish.ftl` | Если был |
 
-### ⚠️ В текущем рабочем дереве это сделано криво
-
-Файлы **переименованы**, а не удалены, и внутри до сих пор испанский код
-(класс так и называется `SpanishAccentComponent`). `git status` показывает `RD`:
-в индексе они есть, на диске их нет. Если закоммитить как есть - в репу уедет
-мёртвый файл с чужим именем класса.
-
-Чинится так:
+Именно **удалить** (`git rm`), а не переименовать в `Polish*` - C# польскому
+акценту не нужен вообще, иначе в репу уедет мёртвый файл с испанским кодом
+под польским именем.
 
 ```bash
-git rm --cached Content.Server/Speech/Components/PolishAccentComponent.cs Content.Server/Speech/EntitySystems/PolishAccentSystem.cs
+git rm Content.Server/Speech/Components/SpanishAccentComponent.cs Content.Server/Speech/EntitySystems/SpanishAccentSystem.cs
 ```
-
----
-
-## Ещё одно перед пушем
-
-В `Resources/Prototypes/Accents/word_replacements.yml` (это **общий** файл, не
-сунрайзовский) в конец насрано **124 строки ASCII-арта, ~37 КБ** комментариев
-`#@@@@@...`. К польскому акценту отношения не имеет, полезной нагрузки ноль.
-Весь diff этого файла - только арт. Убрать.
 
 ---
 
