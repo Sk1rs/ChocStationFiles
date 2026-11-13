@@ -1,0 +1,3443 @@
+diff --git a/Content.Client/Input/ContentContexts.cs b/Content.Client/Input/ContentContexts.cs
+index c55cc2b5cb..4118e71425 100644
+--- a/Content.Client/Input/ContentContexts.cs
++++ b/Content.Client/Input/ContentContexts.cs
+@@ -73,2 +73,3 @@ public static void SetupContexts(IInputContextContainer contexts)
+             human.AddFunction(ContentKeyFunctions.OpenEmotesMenu);
++            human.AddFunction(ContentKeyFunctions.OpenLanguageMenu);
+             human.AddFunction(ContentKeyFunctions.ActivateItemInWorld);
+diff --git a/Content.Client/Options/UI/Tabs/KeyRebindTab.xaml.cs b/Content.Client/Options/UI/Tabs/KeyRebindTab.xaml.cs
+index 882972c571..dd0afdf00c 100644
+--- a/Content.Client/Options/UI/Tabs/KeyRebindTab.xaml.cs
++++ b/Content.Client/Options/UI/Tabs/KeyRebindTab.xaml.cs
+@@ -258,2 +258,3 @@ void AddToggleCvarCheckBox(string checkBoxName, CVarDef<bool> cvar)
+             AddButton(ContentKeyFunctions.OpenEmotesMenu);
++            AddButton(ContentKeyFunctions.OpenLanguageMenu);
+             AddButton(ContentKeyFunctions.ToggleRoundEndSummaryWindow);
+diff --git a/Content.Client/UserInterface/Systems/MenuBar/GameTopMenuBarUIController.cs b/Content.Client/UserInterface/Systems/MenuBar/GameTopMenuBarUIController.cs
+index 2a78f87abf..56f2c096cf 100644
+--- a/Content.Client/UserInterface/Systems/MenuBar/GameTopMenuBarUIController.cs
++++ b/Content.Client/UserInterface/Systems/MenuBar/GameTopMenuBarUIController.cs
+@@ -1,2 +1,3 @@
+ using Content.Client.UserInterface.Systems.Actions;
++using Content.Client._Lust.Languages;
+ using Content.Client.UserInterface.Systems.Admin;
+@@ -27,2 +28,4 @@ public sealed partial class GameTopMenuBarUIController : UIController
+ 
++    [Dependency] private LanguageUIController _language = default!;
++
+     private GameTopMenuBar? GameTopMenuBar => UIManager.GetActiveUIWidgetOrNull<GameTopMenuBar>();
+@@ -49,2 +52,3 @@ public void UnloadButtons()
+         _emotes.UnloadButton();
++        _language.UnloadButton();
+     }
+@@ -62,2 +66,3 @@ public void LoadButtons()
+         _emotes.LoadButton();
++        _language.LoadButton();
+     }
+diff --git a/Content.Client/UserInterface/Systems/MenuBar/Widgets/GameTopMenuBar.xaml b/Content.Client/UserInterface/Systems/MenuBar/Widgets/GameTopMenuBar.xaml
+index dfaf36027c..55a83fb9d6 100644
+--- a/Content.Client/UserInterface/Systems/MenuBar/Widgets/GameTopMenuBar.xaml
++++ b/Content.Client/UserInterface/Systems/MenuBar/Widgets/GameTopMenuBar.xaml
+@@ -1,2 +1,2 @@
+-﻿<widgets:GameTopMenuBar xmlns="https://spacestation14.io"
++<widgets:GameTopMenuBar xmlns="https://spacestation14.io"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+@@ -55,2 +55,12 @@
+         />
++    <ui:MenuButton
++        Name="LanguageButton"
++        Access="Internal"
++        Icon="{xe:Tex '/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png'}"
++        ToolTip="{Loc 'lust-language-menu'}"
++        BoundKey="{x:Static is:ContentKeyFunctions.OpenLanguageMenu}"
++        MinSize="42 64"
++        HorizontalExpand="True"
++        AppendStyleClass="{x:Static style:StyleClass.ButtonSquare}"
++        />
+     <ui:MenuButton
+diff --git a/Content.Client/_Lust/Languages/LanguageSystem.cs b/Content.Client/_Lust/Languages/LanguageSystem.cs
+new file mode 100644
+index 0000000000..0fea9ef00f
+--- /dev/null
++++ b/Content.Client/_Lust/Languages/LanguageSystem.cs
+@@ -0,0 +1,13 @@
++using Content.Shared._Lust.Languages;
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.Prototypes;
++
++namespace Content.Client._Lust.Languages;
++
++public sealed partial class LanguageSystem : EntitySystem
++{
++    public void Select(ProtoId<LanguagePrototype> language)
++    {
++        RaiseNetworkEvent(new SelectLanguageEvent(language));
++    }
++}
+diff --git a/Content.Client/_Lust/Languages/LanguageUIController.cs b/Content.Client/_Lust/Languages/LanguageUIController.cs
+new file mode 100644
+index 0000000000..3eff9258b2
+--- /dev/null
++++ b/Content.Client/_Lust/Languages/LanguageUIController.cs
+@@ -0,0 +1,105 @@
++using System.Linq;
++using Content.Client.Gameplay;
++using Content.Shared.Input;
++using Robust.Shared.Input.Binding;
++using Content.Client.UserInterface.Controls;
++using Content.Client.UserInterface.Systems.MenuBar.Widgets;
++using Content.Shared._Lust.Languages.Components;
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Client.Player;
++using Robust.Client.UserInterface.Controllers;
++using Robust.Client.UserInterface.Controls;
++using Robust.Shared.Prototypes;
++using Robust.Shared.Utility;
++
++namespace Content.Client._Lust.Languages;
++
++public sealed partial class LanguageUIController : UIController, IOnStateChanged<GameplayState>
++{
++    [Dependency] private IPlayerManager _player = default!;
++    [Dependency] private IPrototypeManager _prototype = default!;
++
++    private MenuButton? Button => UIManager.GetActiveUIWidgetOrNull<GameTopMenuBar>()?.LanguageButton;
++    private SimpleRadialMenu? _menu;
++
++    public void OnStateEntered(GameplayState state)
++    {
++        CommandBinds.Builder
++            .Bind(ContentKeyFunctions.OpenLanguageMenu, InputCmdHandler.FromDelegate(_ => ToggleMenu()))
++            .Register<LanguageUIController>();
++    }
++
++    public void OnStateExited(GameplayState state)
++    {
++        CommandBinds.Unregister<LanguageUIController>();
++        CloseMenu();
++    }
++
++    public void LoadButton()
++    {
++        if (Button is {} button)
++            button.OnPressed += OnPressed;
++    }
++
++    public void UnloadButton()
++    {
++        if (Button is {} button)
++            button.OnPressed -= OnPressed;
++
++        CloseMenu();
++    }
++
++    private void OnPressed(BaseButton.ButtonEventArgs args) => ToggleMenu();
++
++    private void ToggleMenu()
++    {
++        if (_menu != null)
++        {
++            CloseMenu();
++            return;
++        }
++
++        if (!EntityManager.TryGetComponent<LanguageComponent>(_player.LocalEntity, out var language))
++            return;
++
++        var buttons = new List<RadialMenuOptionBase>();
++        foreach (var id in language.KnownLanguages.OrderBy(id => id.Id))
++        {
++            if (language.CantSpeakLanguages.Contains(id) || !_prototype.TryIndex(id, out var prototype))
++                continue;
++
++            buttons.Add(new RadialMenuActionOption<ProtoId<LanguagePrototype>>(Select, id)
++            {
++                IconSpecifier = RadialMenuIconSpecifier.With(prototype.Icon ??
++                    new SpriteSpecifier.Texture(new ResPath("/Textures/_Lust/Languages/LanguageIcons/default.png"))),
++                ToolTip = id == language.SelectedLanguage
++                    ? Loc.GetString("lust-language-selected", ("language", Loc.GetString(prototype.Name)))
++                    : Loc.GetString(prototype.Name),
++            });
++        }
++
++        if (buttons.Count == 0)
++            return;
++
++        _menu = new SimpleRadialMenu();
++        _menu.SetButtons(buttons);
++        _menu.OnClose += CloseMenu;
++        _menu.OpenCentered();
++    }
++
++    private void Select(ProtoId<LanguagePrototype> language)
++    {
++        EntityManager.System<LanguageSystem>().Select(language);
++        CloseMenu();
++    }
++
++    private void CloseMenu()
++    {
++        if (_menu is not {} menu)
++            return;
++
++        _menu = null;
++        menu.OnClose -= CloseMenu;
++        menu.Dispose();
++    }
++}
+diff --git a/Content.Server/Chat/Systems/ChatSystem.PrivateAPI.cs b/Content.Server/Chat/Systems/ChatSystem.PrivateAPI.cs
+index e817bb834c..dc3400159e 100644
+--- a/Content.Server/Chat/Systems/ChatSystem.PrivateAPI.cs
++++ b/Content.Server/Chat/Systems/ChatSystem.PrivateAPI.cs
+@@ -1,2 +1,5 @@
+ using System.Linq;
++using Content.Server._Lust.Languages;
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.Prototypes;
+ using Content.Server._Sunrise.Chat;
+@@ -16,2 +19,4 @@ public sealed partial class ChatSystem
+ {
++    [Dependency] private LanguageSystem _language = default!;
++
+     private void SendEntitySpeak(
+@@ -56,10 +61,18 @@ private void SendEntitySpeak(
+ 
+-        var wrappedMessage = Loc.GetString(speech.Bold ? "chat-manager-entity-say-bold-wrap-message" : "chat-manager-entity-say-wrap-message",
++        var language = _language.GetSpokenLanguage(source);
++        var label = FormattedMessage.EscapeText(_language.GetLanguageLabel(language));
++        var verb = Loc.GetString(_random.Pick(speech.SpeechVerbStrings));
++        string Wrap(string text) => label + Loc.GetString(speech.Bold
++                ? "chat-manager-entity-say-bold-wrap-message"
++                : "chat-manager-entity-say-wrap-message",
+             ("entityName", name),
+-            ("verb", Loc.GetString(_random.Pick(speech.SpeechVerbStrings))),
++            ("verb", verb),
+             ("fontType", speech.FontId),
+             ("fontSize", speech.FontSize),
+-            ("message", isFormatted ? message : FormattedMessage.EscapeText(message))); // Sunrise-Edit
++            ("message", text));
+ 
+-        SendInVoiceRange(ChatChannel.Local, message, wrappedMessage, source, range);
++        var wrappedMessage = Wrap(isFormatted ? message : FormattedMessage.EscapeText(message));
++        var lexicon = _language.TransformWord(FormattedMessage.RemoveMarkupPermissive(message), language);
++        SendInVoiceRange(ChatChannel.Local, message, wrappedMessage, source, range,
++            untranslated: (lexicon, Wrap(FormattedMessage.EscapeText(lexicon))));
+ 
+@@ -91,2 +104,7 @@ private void SendEntitySpeak(
+ 
++    public void RelayRadioSpeech(EntityUid source, string message, string name, ProtoId<LanguagePrototype> language)
++    {
++        SendEntityWhisper(source, message, ChatTransmitRange.GhostRangeLimit, null, name, relayedLanguage: language);
++    }
++
+     private void SendEntityWhisper(
+@@ -99,4 +117,4 @@ private void SendEntityWhisper(
+         bool ignoreActionBlocker = false,
+-        bool isFormatted = false // Sunrise-Edit
+-        )
++        bool isFormatted = false,
++        ProtoId<LanguagePrototype>? relayedLanguage = null)
+     {
+@@ -139,2 +157,9 @@ private void SendEntityWhisper(
+ 
++        var language = relayedLanguage ?? _language.GetSpokenLanguage(source);
++        var label = FormattedMessage.EscapeText(_language.GetLanguageLabel(language));
++        var lexicon = _language.TransformWord(message, language);
++        var muffledLexicon = ObfuscateMessageReadability(lexicon, 0.2f);
++        wrappedMessage = label + wrappedMessage;
++        wrappedobfuscatedMessage = label + wrappedobfuscatedMessage;
++        wrappedUnknownMessage = label + wrappedUnknownMessage;
+         foreach (var (session, data) in GetRecipients(source, WhisperMuffledRange))
+@@ -150,2 +175,16 @@ private void SendEntityWhisper(
+ 
++            if (!_language.KnowsLanguage(listener, language))
++            {
++                var clear = data.Range <= WhisperClearRange || data.Observer;
++                var identifiable = clear || _examineSystem.InRangeUnOccluded(source, listener, WhisperMuffledRange);
++                var text = clear ? lexicon : muffledLexicon;
++                var wrapped = label + (identifiable
++                    ? Loc.GetString("chat-manager-entity-whisper-wrap-message",
++                        ("entityName", clear ? name : nameIdentity), ("message", FormattedMessage.EscapeText(text)))
++                    : Loc.GetString("chat-manager-entity-whisper-unknown-wrap-message",
++                        ("message", FormattedMessage.EscapeText(text))));
++                _chatManager.ChatMessageToOne(ChatChannel.Whisper, text, wrapped, source, false, session.Channel);
++                continue;
++            }
++
+             if (data.Range <= WhisperClearRange || data.Observer)
+diff --git a/Content.Server/Chat/Systems/ChatSystem.Utility.cs b/Content.Server/Chat/Systems/ChatSystem.Utility.cs
+index f59ba48935..f7d85a9260 100644
+--- a/Content.Server/Chat/Systems/ChatSystem.Utility.cs
++++ b/Content.Server/Chat/Systems/ChatSystem.Utility.cs
+@@ -67,3 +67,3 @@ private MessageRangeCheckResult MessageRangeCheck(ICommonSession session, ICChat
+     /// </summary>
+-    public void SendInVoiceRange(ChatChannel channel, string message, string wrappedMessage, EntityUid source, ChatTransmitRange range, NetUserId? author = null, Color? color = null) // Sunrise-Edit
++    public void SendInVoiceRange(ChatChannel channel, string message, string wrappedMessage, EntityUid source, ChatTransmitRange range, NetUserId? author = null, Color? color = null, (string Message, string Wrapped)? untranslated = null)
+     {
+@@ -86,3 +86,7 @@ public void SendInVoiceRange(ChatChannel channel, string message, string wrapped
+             var entHideChat = entRange == MessageRangeCheckResult.HideChat;
+-            _chatManager.ChatMessageToOne(channel, message, wrappedMessage, source, entHideChat, session.Channel, author: author, colorOverride: color); // Sunrise-Edit
++            var heard = untranslated is {} alternate &&
++                !_language.KnowsLanguage(session.AttachedEntity, _language.GetSpokenLanguage(source))
++                ? alternate
++                : (message, wrappedMessage);
++            _chatManager.ChatMessageToOne(channel, heard.Item1, heard.Item2, source, entHideChat, session.Channel, author: author, colorOverride: color);
+         }
+diff --git a/Content.Server/EntityEffects/Effects/MakeSentientEntityEffectSystem.cs b/Content.Server/EntityEffects/Effects/MakeSentientEntityEffectSystem.cs
+index c19f62742c..8cd8d56c7a 100644
+--- a/Content.Server/EntityEffects/Effects/MakeSentientEntityEffectSystem.cs
++++ b/Content.Server/EntityEffects/Effects/MakeSentientEntityEffectSystem.cs
+@@ -1,2 +1,3 @@
+-﻿using Content.Server.Ghost.Roles.Components;
++using Content.Server.Ghost.Roles.Components;
++using Content.Server._Lust.Languages;
+ using Content.Server.RuntimeFun;
+@@ -16,2 +17,4 @@ public sealed partial class MakeSentientEntityEffectSystem : EntityEffectSystem<
+ {
++    [Dependency] private LanguageSystem _language = default!;
++
+     protected override void Effect(Entity<MetaDataComponent> entity, ref EntityEffectEvent<MakeSentient> args)
+@@ -23,2 +26,3 @@ protected override void Effect(Entity<MetaDataComponent> entity, ref EntityEffec
+         {
++            _language.EnableSentientLanguages(entity);
+             RemComp<ReplacementAccentComponent>(entity);
+diff --git a/Content.Server/Radio/EntitySystems/HeadsetSystem.cs b/Content.Server/Radio/EntitySystems/HeadsetSystem.cs
+index 7db9948255..ad8d791410 100644
+--- a/Content.Server/Radio/EntitySystems/HeadsetSystem.cs
++++ b/Content.Server/Radio/EntitySystems/HeadsetSystem.cs
+@@ -147,3 +147,3 @@ private void OnHeadsetReceive(Entity<HeadsetComponent> ent, ref RadioReceiveEven
+         {
+-            _netMan.ServerSendMessage(args.ChatMsg, actor.PlayerSession.Channel);
++            _netMan.ServerSendMessage(_radio.MessageFor(parent, args), actor.PlayerSession.Channel);
+             if (parent != args.MessageSource && HasComp<TTSComponent>(args.MessageSource))
+diff --git a/Content.Server/Radio/EntitySystems/RadioDeviceSystem.cs b/Content.Server/Radio/EntitySystems/RadioDeviceSystem.cs
+index b1e21772a5..121521c7c7 100644
+--- a/Content.Server/Radio/EntitySystems/RadioDeviceSystem.cs
++++ b/Content.Server/Radio/EntitySystems/RadioDeviceSystem.cs
+@@ -1 +1,3 @@
++using Content.Server.Chat.Systems;
++using Content.Shared.Radio;
+ using Content.Shared.Radio.EntitySystems;
+@@ -5,2 +7,13 @@ namespace Content.Server.Radio.EntitySystems;
+ /// <inheritdoc/>
+-public sealed partial class RadioDeviceSystem : SharedRadioDeviceSystem;
++public sealed partial class RadioDeviceSystem : SharedRadioDeviceSystem
++{
++    [Dependency] private ChatSystem _chat = default!;
++
++    protected override void RelaySpeech(EntityUid speaker, string name, in RadioReceiveEvent args)
++    {
++        if (args.Untranslated == null)
++            base.RelaySpeech(speaker, name, args);
++        else
++            _chat.RelayRadioSpeech(speaker, args.Message, name, args.Language);
++    }
++}
+diff --git a/Content.Server/Radio/EntitySystems/RadioSystem.cs b/Content.Server/Radio/EntitySystems/RadioSystem.cs
+index 556c6b1251..298475418f 100644
+--- a/Content.Server/Radio/EntitySystems/RadioSystem.cs
++++ b/Content.Server/Radio/EntitySystems/RadioSystem.cs
+@@ -1,2 +1,3 @@
+ using Content.Server.Administration.Logs;
++using Content.Server._Lust.Languages;
+ using Content.Server.Chat.Managers;
+@@ -24,2 +25,3 @@ public sealed partial class RadioSystem : SharedRadioSystem
+ {
++    [Dependency] private LanguageSystem _language = default!;
+     [Dependency] private INetManager _netMan = default!;
+@@ -57,3 +59,3 @@ private void OnIntrinsicReceive(EntityUid uid, IntrinsicRadioReceiverComponent c
+ 
+-        var msg = args.ChatMsg;
++        var msg = MessageFor(uid, args);
+         if (_ghost.CanGhostWarp(actor.PlayerSession, out _))
+@@ -62,6 +64,6 @@ private void OnIntrinsicReceive(EntityUid uid, IntrinsicRadioReceiverComponent c
+             {
+-                Message = new ChatMessage(args.ChatMsg.Message)
++                Message = new ChatMessage(msg.Message)
+                 {
+                     WrappedMessage = _chatManager.PrependFollowButtonIfAppropriate(
+-                        args.ChatMsg.Message.WrappedMessage,
++                        msg.Message.WrappedMessage,
+                         args.MessageSource,
+@@ -80,2 +82,9 @@ private void OnIntrinsicReceive(EntityUid uid, IntrinsicRadioReceiverComponent c
+ 
++    public MsgChatMessage MessageFor(EntityUid listener, in RadioReceiveEvent args)
++    {
++        return args.Untranslated is {} alternate && !_language.KnowsLanguage(listener, args.Language)
++            ? alternate
++            : args.ChatMsg;
++    }
++
+     /// <inheritdoc/>
+@@ -114,3 +123,6 @@ public override void SendRadioMessage(EntityUid messageSource, string message, R
+ 
+-        var wrappedMessage = Loc.GetString(speech.Bold ? "chat-radio-message-wrap-bold" : "chat-radio-message-wrap",
++        var language = _language.GetSpokenLanguage(messageSource);
++        var label = FormattedMessage.EscapeText(_language.GetLanguageLabel(language));
++        var verb = Loc.GetString(_random.Pick(speech.SpeechVerbStrings));
++        string Wrap(string text) => label + Loc.GetString(speech.Bold ? "chat-radio-message-wrap-bold" : "chat-radio-message-wrap",
+             ("color", channel.Color),
+@@ -118,6 +130,7 @@ public override void SendRadioMessage(EntityUid messageSource, string message, R
+             ("fontSize", speech.FontSize),
+-            ("verb", Loc.GetString(_random.Pick(speech.SpeechVerbStrings))),
++            ("verb", verb),
+             ("channel", $"\\[{channel.LocalizedName}\\]"),
+             ("name", formattedName),
+-            ("message", content));
++            ("message", text));
++        var wrappedMessage = Wrap(content);
+ 
+@@ -131,3 +144,17 @@ public override void SendRadioMessage(EntityUid messageSource, string message, R
+         var chatMsg = new MsgChatMessage { Message = chat };
+-        var ev = new RadioReceiveEvent(message, messageSource, channel, radioSource, chatMsg, []); // Sunrise-Edit - список получателей нужен TTS
++        var lexicon = _language.TransformWord(FormattedMessage.RemoveMarkupPermissive(message), language);
++        var untranslated = new MsgChatMessage
++        {
++            Message = new ChatMessage(chat)
++            {
++                Message = lexicon,
++                WrappedMessage = Wrap(FormatRadioContent(messageSource, FormattedMessage.EscapeText(lexicon))),
++            },
++        };
++
++        var ev = new RadioReceiveEvent(message, messageSource, channel, radioSource, chatMsg, [])
++        {
++            Language = language,
++            Untranslated = untranslated,
++        };
+ 
+diff --git a/Content.Server/_Lust/Languages/LanguageSystem.cs b/Content.Server/_Lust/Languages/LanguageSystem.cs
+new file mode 100644
+index 0000000000..6542ebd843
+--- /dev/null
++++ b/Content.Server/_Lust/Languages/LanguageSystem.cs
+@@ -0,0 +1,279 @@
++using System.Text;
++using System.Text.RegularExpressions;
++using Content.Shared._Lust.Languages;
++using Content.Shared._Lust.Languages.Components;
++using Content.Shared._Lust.Languages.Prototypes;
++using Content.Shared.Ghost.Components;
++using Content.Shared.Implants;
++using Content.Shared.Polymorph;
++using Content.Shared.Zombies;
++using Content.Shared.Humanoid;
++using Robust.Shared.Player;
++using Robust.Shared.Prototypes;
++
++namespace Content.Server._Lust.Languages;
++
++public sealed partial class LanguageSystem : EntitySystem
++{
++    [Dependency] private IPrototypeManager _prototype = default!;
++
++    public static readonly ProtoId<LanguagePrototype> Common = "GeneralLanguage";
++
++    private readonly Dictionary<ProtoId<LanguagePrototype>, List<Regex>> _regexCache = new();
++
++    private static readonly Dictionary<string, ProtoId<LanguagePrototype>> SpeciesLanguages = new()
++    {
++        ["Arachnid"] = "ArachnidLanguage",
++        ["Demon"] = "DemonLanguage",
++        ["Diona"] = "DionaLanguage",
++        ["Dwarf"] = "DwarfLanguage",
++        ["Felinid"] = "CatLanguage",
++        ["HumanoidXeno"] = "XenomorphLanguage",
++        ["Moth"] = "MothLanguage",
++        ["Reptilian"] = "ReptilianLanguage",
++        ["SlimePerson"] = "SlimeLanguage",
++        ["Tajaran"] = "CatLanguage",
++        ["Vox"] = "VoxLanguage",
++        ["Vulpkanin"] = "VulpkaninLanguage",
++    };
++
++    public override void Initialize()
++    {
++        SubscribeLocalEvent<HumanoidProfileComponent, MapInitEvent>(OnHumanoidInit);
++        SubscribeLocalEvent<HumanoidProfileComponent, VoiceChangedEvent>(OnProfileChanged);
++        SubscribeLocalEvent<HumanoidProfileComponent, PlayerAttachedEvent>(OnPlayerAttached);
++        SubscribeLocalEvent<LanguageComponent, PolymorphedEvent>(OnPolymorphed);
++        SubscribeLocalEvent<LearnLanguageImplantComponent, ImplantImplantedEvent>(OnImplanted);
++        SubscribeNetworkEvent<SelectLanguageEvent>(OnSelect);
++    }
++
++    private void OnHumanoidInit(Entity<HumanoidProfileComponent> ent, ref MapInitEvent args)
++    {
++        GrantSpeciesLanguages(ent);
++    }
++
++    private void OnProfileChanged(Entity<HumanoidProfileComponent> ent, ref VoiceChangedEvent args)
++    {
++        GrantSpeciesLanguages(ent);
++    }
++
++    private void OnPlayerAttached(Entity<HumanoidProfileComponent> ent, ref PlayerAttachedEvent args)
++    {
++        GrantSpeciesLanguages(ent);
++    }
++
++    private void GrantSpeciesLanguages(Entity<HumanoidProfileComponent> ent)
++    {
++        if (HasComp<ZombieComponent>(ent))
++            return;
++
++        var language = EnsureComp<LanguageComponent>(ent);
++        var changed = language.KnownLanguages.Add(Common);
++        if (SpeciesLanguages.TryGetValue(ent.Comp.Species.Id, out var native))
++            changed |= language.KnownLanguages.Add(native);
++
++        if (changed)
++            Dirty(ent, language);
++    }
++
++    private void OnPolymorphed(Entity<LanguageComponent> ent, ref PolymorphedEvent args)
++    {
++        var language = EnsureComp<LanguageComponent>(args.NewEntity);
++        language.KnownLanguages.UnionWith(ent.Comp.KnownLanguages);
++        language.CantSpeakLanguages.UnionWith(ent.Comp.CantSpeakLanguages);
++        language.SelectedLanguage = ent.Comp.SelectedLanguage;
++        Dirty(args.NewEntity, language);
++    }
++
++    public void SetZombieLanguage(EntityUid ent)
++    {
++        var language = EnsureComp<LanguageComponent>(ent);
++        language.KnownLanguages.Clear();
++        language.KnownLanguages.Add("ZombieLanguage");
++        language.CantSpeakLanguages.Clear();
++        language.UnlockLanguagesAfterMakeSentient.Clear();
++        language.SelectedLanguage = "ZombieLanguage";
++        Dirty(ent, language);
++    }
++
++    public void EnableSentientLanguages(EntityUid entity)
++    {
++        if (HasComp<ZombieComponent>(entity))
++            return;
++
++        var language = EnsureComp<LanguageComponent>(entity);
++        language.KnownLanguages.Add(Common);
++        language.CantSpeakLanguages.ExceptWith(language.UnlockLanguagesAfterMakeSentient);
++        language.KnownLanguages.UnionWith(language.UnlockLanguagesAfterMakeSentient);
++        Dirty(entity, language);
++    }
++
++    private void OnImplanted(Entity<LearnLanguageImplantComponent> ent, ref ImplantImplantedEvent args)
++    {
++        if (HasComp<ZombieComponent>(args.Implanted))
++            return;
++
++        var language = EnsureComp<LanguageComponent>(args.Implanted);
++        language.KnownLanguages.Add(Common);
++        language.KnownLanguages.UnionWith(ent.Comp.Language);
++        Dirty(args.Implanted, language);
++    }
++
++    private void OnSelect(SelectLanguageEvent message, EntitySessionEventArgs args)
++    {
++        if (args.SenderSession.AttachedEntity is not {} entity ||
++            !TryComp<LanguageComponent>(entity, out var language) ||
++            !language.KnownLanguages.Contains(message.PrototypeId) ||
++            language.CantSpeakLanguages.Contains(message.PrototypeId) ||
++            !_prototype.HasIndex(message.PrototypeId))
++        {
++            return;
++        }
++
++        language.SelectedLanguage = message.PrototypeId;
++        Dirty(entity, language);
++    }
++
++    public ProtoId<LanguagePrototype> GetSpokenLanguage(EntityUid source)
++    {
++        return TryComp<LanguageComponent>(source, out var language)
++            ? language.SelectedLanguage
++            : Common;
++    }
++
++    public bool KnowsLanguage(EntityUid? listener, ProtoId<LanguagePrototype> language)
++    {
++        if (HasComp<GhostComponent>(listener))
++            return true;
++
++        if (TryComp<LanguageComponent>(listener, out var component))
++            return component.KnownLanguages.Contains(language);
++
++        if (language == Common)
++            return true;
++
++        return _prototype.TryIndex(language, out var prototype) && prototype.CanBeUnderstoodWithoutKnowledge;
++    }
++
++    public LanguagePrototype? GetLanguage(EntityUid source)
++    {
++        var id = GetSpokenLanguage(source);
++        return _prototype.TryIndex(id, out var prototype) ? prototype : null;
++    }
++
++    public string GetLanguageLabel(ProtoId<LanguagePrototype> language)
++    {
++        return language != Common && _prototype.TryIndex(language, out var prototype)
++            ? $"[{Loc.GetString(prototype.Name)}] "
++            : string.Empty;
++    }
++
++    public static int GetDeterministicHashCode(string str) { unchecked { int hash1 = (5381 << 16) + 5381; int hash2 = hash1; for (int i = 0; i < str.Length; i += 2) { hash1 = ((hash1 << 5) + hash1) ^ str[i]; if (i + 1 < str.Length) hash2 = ((hash2 << 5) + hash2) ^ str[i + 1]; } return hash1 + (hash2 * 1566083941); } }
++
++    public string TransformWord(string word, ProtoId<LanguagePrototype>? languageId)
++    {
++        if (!_prototype.TryIndex(languageId, out var proto))
++            return word;
++
++        var hash = GetDeterministicHashCode(word + proto.ID);
++
++        switch (proto.SpeechMode)
++        {
++            case SpeechMode.Lexicon:
++                return TransformLexicon(hash, proto);
++
++            case SpeechMode.Alphabet:
++                return TransformAlphabet(hash, proto);
++
++            case SpeechMode.Syllable:
++                return TransformSyllableText(word, proto);
++
++            case SpeechMode.Pattern:
++                return TransformPattern(word, proto);
++
++            default:
++                return word;
++        }
++    }
++
++    private string TransformLexicon(int hash, LanguagePrototype proto)
++    {
++        var list = proto.Lexicon;
++        return list.Count == 0 ? string.Empty : list[(int)((uint)hash & int.MaxValue) % list.Count];
++    }
++
++    private string TransformAlphabet(int hash, LanguagePrototype proto)
++    {
++        var alphabet = proto.Alphabet;
++        if (alphabet.Count == 0)
++            return string.Empty;
++
++        int len = proto.GenerateLength;
++
++        var sb = new StringBuilder();
++
++        int localHash = hash;
++        for (int i = 0; i < len; i++)
++        {
++            int index = (int)((uint)localHash & int.MaxValue) % alphabet.Count;
++            sb.Append(alphabet[index]);
++
++            localHash = GetDeterministicHashCode(localHash.ToString());
++        }
++
++        return sb.ToString();
++    }
++
++    private string TransformSyllableText(string text, LanguagePrototype proto)
++    {
++        if (string.IsNullOrWhiteSpace(text) || proto.Syllables.Count == 0)
++            return text;
++
++        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
++        var sb = new StringBuilder();
++
++        foreach (var word in words)
++        {
++            var hash = GetDeterministicHashCode(word + proto.ID);
++
++            int count = proto.MinSyllables +
++                ((int)((uint)hash & int.MaxValue) % (proto.MaxSyllables - proto.MinSyllables + 1));
++
++            var localHash = hash;
++            for (int i = 0; i < count; i++)
++            {
++                sb.Append(proto.Syllables[(int)((uint)localHash & int.MaxValue) % proto.Syllables.Count]);
++                localHash = GetDeterministicHashCode(localHash.ToString());
++            }
++
++            sb.Append(' ');
++        }
++
++        return sb.ToString().Trim();
++    }
++
++    private string TransformPattern(string word, LanguagePrototype proto)
++    {
++        if (!_regexCache.TryGetValue(proto.ID, out var regexList))
++        {
++            regexList = new List<Regex>(proto.Patterns.Count);
++
++            for (int i = 0; i < proto.Patterns.Count; i++)
++            {
++                var r = new Regex(
++                    proto.Patterns[i],
++                    RegexOptions.IgnoreCase | RegexOptions.Compiled
++                );
++                regexList.Add(r);
++            }
++
++            _regexCache[proto.ID] = regexList;
++        }
++
++        string result = word;
++        for (int i = 0; i < Math.Min(regexList.Count, proto.Replacements.Count); i++)
++            result = regexList[i].Replace(result, proto.Replacements[i]);
++
++        return result;
++    }
++}
+diff --git a/Content.Server/_Sunrise/TTS/TTSSystem.cs b/Content.Server/_Sunrise/TTS/TTSSystem.cs
+index 906fc34e87..526f8dcda0 100644
+--- a/Content.Server/_Sunrise/TTS/TTSSystem.cs
++++ b/Content.Server/_Sunrise/TTS/TTSSystem.cs
+@@ -1,2 +1,2 @@
+-﻿using System.Diagnostics.CodeAnalysis;
++using System.Diagnostics.CodeAnalysis;
+ using System.Linq;
+@@ -4,2 +4,3 @@
+ using Content.Server._Sunrise.AnnouncementSpeaker;
++using Content.Server._Lust.Languages;
+ using Content.Server.Chat.Systems;
+@@ -34,2 +35,4 @@ public sealed partial class TTSSystem : EntitySystem
+ 
++    [Dependency] private LanguageSystem _language = default!;
++
+     private readonly List<string> _sampleText =
+@@ -129,3 +132,25 @@ private void OnRadioReceiveEvent(RadioSpokeEvent args)
+ 
+-        HandleRadio(args.Receivers, message, protoVoice, args.ChannelId, voiceEv.Effect);
++        var language = _language.GetLanguage(args.Source);
++        if (language == null)
++        {
++            HandleRadio(args.Receivers, message, protoVoice, args.ChannelId, voiceEv.Effect);
++            return;
++        }
++
++        var id = _language.GetSpokenLanguage(args.Source);
++        var understood = args.Receivers.Where(receiver => _language.KnowsLanguage(receiver, id)).ToArray();
++        var foreign = args.Receivers.Where(receiver => !_language.KnowsLanguage(receiver, id)).ToArray();
++        if (understood.Length > 0)
++            HandleRadio(understood, message, protoVoice, args.ChannelId, voiceEv.Effect);
++        if (foreign.Length == 0)
++            return;
++        if (language.GenerateTTSForLexicon)
++            HandleRadio(foreign, _language.TransformWord(args.Message, id), protoVoice, args.ChannelId, voiceEv.Effect);
++        else if (language.LexiconSound is {} sound)
++        {
++            var filter = Filter.Empty().AddPlayers(Filter.Broadcast().Recipients
++                .Where(session => session.AttachedEntity is {} receiver && foreign.Contains(receiver)))
++                .RemovePlayers(_ignoredRecipients);
++            _audioSystem.PlayGlobal(sound, filter, false);
++        }
+     }
+@@ -289,5 +314,10 @@ private async void OnEntitySpoke(EntityUid uid, TTSComponent component, EntitySp
+ 
+-        if (args.ObfuscatedMessage != null)
++        var whisper = args.ObfuscatedMessage != null;
++        var language = _language.GetLanguage(uid);
++        if (language == null)
+         {
+-            HandleWhisper(uid, message, protoVoice);
++            if (whisper)
++                HandleWhisper(uid, message, protoVoice);
++            else
++                HandleSay(uid, message, protoVoice, voiceEv.Effect);
+             return;
+@@ -295,9 +325,37 @@ private async void OnEntitySpoke(EntityUid uid, TTSComponent component, EntitySp
+ 
+-        HandleSay(uid, message, protoVoice, voiceEv.Effect);
++        var id = _language.GetSpokenLanguage(uid);
++        var nearby = Filter.Pvs(uid, 1f).RemovePlayers(_ignoredRecipients);
++        var understood = Filter.Empty().AddPlayers(nearby.Recipients.Where(session => _language.KnowsLanguage(session.AttachedEntity, id)));
++        var foreign = nearby.RemovePlayers(understood.Recipients);
++        if (whisper)
++            HandleWhisper(uid, message, protoVoice, understood);
++        else
++            HandleSay(uid, message, protoVoice, voiceEv.Effect, understood);
++
++        if (!foreign.Recipients.Any())
++            return;
++
++        if (language.GenerateTTSForLexicon)
++        {
++            var lexicon = _language.TransformWord(args.Message, id);
++            if (whisper)
++                HandleWhisper(uid, lexicon, protoVoice, foreign);
++            else
++                HandleSay(uid, lexicon, protoVoice, voiceEv.Effect, foreign);
++        }
++        else if (language.LexiconSound is {} sound)
++        {
++            if (whisper)
++            {
++                var source = _xforms.GetWorldPosition(uid);
++                foreign.RemoveWhere(session => session.AttachedEntity is not {} listener ||
++                    (source - _xforms.GetWorldPosition(listener)).LengthSquared() > WhisperVoiceRange);
++            }
++            _audioSystem.PlayEntity(sound, foreign, uid, false);
++        }
+     }
+ 
+-    private async void HandleSay(EntityUid uid, string message, TTSVoicePrototype voicePrototype, string? effect)
++    private async void HandleSay(EntityUid uid, string message, TTSVoicePrototype voicePrototype, string? effect, Filter? audience = null)
+     {
+-
+-        var recipients = Filter.Pvs(uid, 1F).RemovePlayers(_ignoredRecipients);
++        var recipients = audience ?? Filter.Pvs(uid, 1F).RemovePlayers(_ignoredRecipients);
+ 
+@@ -317,3 +375,3 @@ private async void HandleSay(EntityUid uid, string message, TTSVoicePrototype vo
+ 
+-    private async void HandleWhisper(EntityUid uid, string message, TTSVoicePrototype voicePrototype)
++    private async void HandleWhisper(EntityUid uid, string message, TTSVoicePrototype voicePrototype, Filter? audience = null)
+     {
+@@ -327,3 +385,3 @@ private async void HandleWhisper(EntityUid uid, string message, TTSVoicePrototyp
+         var sourcePos = _xforms.GetWorldPosition(_xformQuery.GetComponent(uid), _xformQuery);
+-        var receptions = Filter.Pvs(uid).Recipients;
++        var receptions = (audience ?? Filter.Pvs(uid)).Recipients;
+         foreach (var session in receptions)
+@@ -334,3 +392,3 @@ private async void HandleWhisper(EntityUid uid, string message, TTSVoicePrototyp
+             if (_ignoredRecipients.Contains(session))
+-                return;
++                continue;
+ 
+diff --git a/Content.Server/_Sunrise/Zombies/ZombieSystem.Abilities.cs b/Content.Server/_Sunrise/Zombies/ZombieSystem.Abilities.cs
+index 5869c93e2b..9e57cb3e0a 100644
+--- a/Content.Server/_Sunrise/Zombies/ZombieSystem.Abilities.cs
++++ b/Content.Server/_Sunrise/Zombies/ZombieSystem.Abilities.cs
+@@ -1 +1,2 @@
++using Content.Server._Lust.Languages;
+ using Content.Server.Pinpointer;
+@@ -29,4 +30,7 @@ private void InitializeSunrise()
+ 
++    [Dependency] private LanguageSystem _language = default!;
++
+     private void OnSunriseStartup(Entity<ZombieComponent> ent, ref ComponentStartup args)
+     {
++        _language.SetZombieLanguage(ent);
+         _actions.AddAction(ent, ent.Comp.JumpAction);
+diff --git a/Content.Shared/Input/ContentKeyFunctions.cs b/Content.Shared/Input/ContentKeyFunctions.cs
+index 036710a745..e95ceb67e4 100644
+--- a/Content.Shared/Input/ContentKeyFunctions.cs
++++ b/Content.Shared/Input/ContentKeyFunctions.cs
+@@ -29,2 +29,3 @@ public static class ContentKeyFunctions
+         public static readonly BoundKeyFunction OpenEmotesMenu = "OpenEmotesMenu";
++        public static readonly BoundKeyFunction OpenLanguageMenu = "OpenLanguageMenu";
+         public static readonly BoundKeyFunction OpenCraftingMenu = "OpenCraftingMenu";
+diff --git a/Content.Shared/Radio/EntitySystems/SharedRadioDeviceSystem.cs b/Content.Shared/Radio/EntitySystems/SharedRadioDeviceSystem.cs
+index 753589199c..ebf6e15ef1 100644
+--- a/Content.Shared/Radio/EntitySystems/SharedRadioDeviceSystem.cs
++++ b/Content.Shared/Radio/EntitySystems/SharedRadioDeviceSystem.cs
+@@ -275,4 +275,9 @@ private void OnReceiveRadio(Entity<RadioSpeakerComponent> ent, ref RadioReceiveE
+ 
++        RelaySpeech(ent, name, args);
++    }
++
++    protected virtual void RelaySpeech(EntityUid speaker, string name, in RadioReceiveEvent args)
++    {
+         // log to chat so people can identity the speaker/source, but avoid clogging ghost chat if there are many radios
+-        _chat.TrySendInGameICMessage(ent.Owner,
++        _chat.TrySendInGameICMessage(speaker,
+             args.Message,
+diff --git a/Content.Shared/Radio/RadioEvent.cs b/Content.Shared/Radio/RadioEvent.cs
+index c89d2fa1a8..dbd447b1bb 100644
+--- a/Content.Shared/Radio/RadioEvent.cs
++++ b/Content.Shared/Radio/RadioEvent.cs
+@@ -1,2 +1,4 @@
+ using Content.Shared.Chat;
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.Prototypes;
+ 
+@@ -8,3 +10,7 @@ namespace Content.Shared.Radio;
+ [ByRefEvent]
+-public readonly record struct RadioReceiveEvent(string Message, EntityUid MessageSource, RadioChannelPrototype Channel, EntityUid RadioSource, MsgChatMessage ChatMsg, List<EntityUid> Receivers); // Sunrise-TTS
++public readonly record struct RadioReceiveEvent(string Message, EntityUid MessageSource, RadioChannelPrototype Channel, EntityUid RadioSource, MsgChatMessage ChatMsg, List<EntityUid> Receivers)
++{
++    public ProtoId<LanguagePrototype> Language { get; init; }
++    public MsgChatMessage? Untranslated { get; init; }
++}
+ 
+diff --git a/Content.Shared/_Lust/Languages/Components/LanguageComponent.cs b/Content.Shared/_Lust/Languages/Components/LanguageComponent.cs
+new file mode 100644
+index 0000000000..f0c6e697c5
+--- /dev/null
++++ b/Content.Shared/_Lust/Languages/Components/LanguageComponent.cs
+@@ -0,0 +1,24 @@
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.GameStates;
++using Robust.Shared.Prototypes;
++
++namespace Content.Shared._Lust.Languages.Components;
++
++[RegisterComponent, NetworkedComponent, AutoGenerateComponentState]
++public sealed partial class LanguageComponent : Component
++{
++    [DataField, AutoNetworkedField]
++    [ViewVariables(VVAccess.ReadOnly)]
++    public HashSet<ProtoId<LanguagePrototype>> KnownLanguages = new();
++
++    [DataField, AutoNetworkedField]
++    [ViewVariables(VVAccess.ReadOnly)]
++    public HashSet<ProtoId<LanguagePrototype>> CantSpeakLanguages = new();
++
++    [DataField]
++    [ViewVariables(VVAccess.ReadOnly)]
++    public HashSet<ProtoId<LanguagePrototype>> UnlockLanguagesAfterMakeSentient = new();
++
++    [DataField, AutoNetworkedField]
++    public ProtoId<LanguagePrototype> SelectedLanguage = "GeneralLanguage";
++}
+diff --git a/Content.Shared/_Lust/Languages/Components/LearnLanguageImplantComponent.cs b/Content.Shared/_Lust/Languages/Components/LearnLanguageImplantComponent.cs
+new file mode 100644
+index 0000000000..cddea71f06
+--- /dev/null
++++ b/Content.Shared/_Lust/Languages/Components/LearnLanguageImplantComponent.cs
+@@ -0,0 +1,11 @@
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.Prototypes;
++
++namespace Content.Shared._Lust.Languages.Components;
++
++[RegisterComponent]
++public sealed partial class LearnLanguageImplantComponent : Component
++{
++    [DataField(required: true)]
++    public HashSet<ProtoId<LanguagePrototype>> Language = new();
++}
+diff --git a/Content.Shared/_Lust/Languages/Prototypes/LanguagePrototype.cs b/Content.Shared/_Lust/Languages/Prototypes/LanguagePrototype.cs
+new file mode 100644
+index 0000000000..524e79bf11
+--- /dev/null
++++ b/Content.Shared/_Lust/Languages/Prototypes/LanguagePrototype.cs
+@@ -0,0 +1,56 @@
++using Robust.Shared.Prototypes;
++using Robust.Shared.Localization;
++using Robust.Shared.Utility;
++using Robust.Shared.Audio;
++
++namespace Content.Shared._Lust.Languages.Prototypes;
++
++[Prototype]
++public sealed partial class LanguagePrototype : IPrototype
++{
++    [IdDataField]
++    public string ID { get; private set; } = default!;
++
++    [DataField]
++    public SpriteSpecifier? Icon = null;
++
++    [DataField]
++    public List<string> Lexicon = new();
++
++    [DataField(required: true)]
++    public LocId Name;
++
++    [DataField]
++    public bool GenerateTTSForLexicon = true;
++
++    [DataField]
++    public bool CanBeUnderstoodWithoutKnowledge = true;
++
++    [DataField]
++    public SoundSpecifier? LexiconSound;
++
++    [DataField(required: true)]
++    public SpeechMode SpeechMode;
++
++    [DataField]
++    public int MinSyllables = 0;
++
++    [DataField]
++    public int MaxSyllables = 0;
++
++    [DataField]
++    public int GenerateLength = 0;
++
++    [DataField]
++    public List<string> Patterns = new();
++
++    [DataField]
++    public List<string> Replacements = new();
++
++    [DataField]
++    public List<string> Syllables = new();
++
++    [DataField]
++    public List<string> Alphabet = new();
++
++}
+diff --git a/Content.Shared/_Lust/Languages/SharedLanguage.cs b/Content.Shared/_Lust/Languages/SharedLanguage.cs
+new file mode 100644
+index 0000000000..85bbeb1ea7
+--- /dev/null
++++ b/Content.Shared/_Lust/Languages/SharedLanguage.cs
+@@ -0,0 +1,25 @@
++using Robust.Shared.Serialization;
++using Content.Shared._Lust.Languages.Prototypes;
++using Robust.Shared.Prototypes;
++
++namespace Content.Shared._Lust.Languages;
++
++public enum SpeechMode
++{
++    Lexicon,
++    Syllable,
++    Alphabet,
++    Pattern
++}
++
++
++[Serializable, NetSerializable]
++public sealed partial class SelectLanguageEvent : EntityEventArgs
++{
++    public ProtoId<LanguagePrototype> PrototypeId { get; }
++
++    public SelectLanguageEvent(ProtoId<LanguagePrototype> prototypeId)
++    {
++        PrototypeId = prototypeId;
++    }
++}
+diff --git a/Resources/Locale/en-US/_lust/languages.ftl b/Resources/Locale/en-US/_lust/languages.ftl
+new file mode 100644
+index 0000000000..64a182073b
+--- /dev/null
++++ b/Resources/Locale/en-US/_lust/languages.ftl
+@@ -0,0 +1,27 @@
++lust-language-menu = Languages
++lust-language-selected = { $language } (selected)
++ui-options-function-open-language-menu = Open language menu
++
++language-unknown-name = Unknown
++research-technology-language-implants = Basic language implants
++language-general-name = Galactic Common
++language-dwarf-name = Dwarvish
++language-dog-name = Canine
++language-blob-name = Blobbish
++language-slime-name = Bubblish
++language-arachnid-name = Tse'hiss
++language-diona-name = Rustling
++language-moth-name = Weaver
++language-reptilian-name = Sinta'Unathi
++language-demon-name = Demonic
++language-cat-name = Feline
++language-machine-name = Binary
++language-plaf-name = Eve-Pishtu
++language-vulpkanin-name = Canilunzt
++language-xenomorph-name = Echoglossa
++language-carp-dragon-name = Vaal'hurys
++language-zombie-name = Zombie
++language-monkey-name = Simian
++language-vox-name = Vox-Pidgin
++language-necromorf-name = Necromorph
++language-prison-name = Prison cant
+diff --git a/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implanters.ftl b/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implanters.ftl
+new file mode 100644
+index 0000000000..1a1f668622
+--- /dev/null
++++ b/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implanters.ftl
+@@ -0,0 +1,29 @@
++ent-LearnSlimeLanguageImplanter = имплант изучения пузырчатого языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnArachnidLanguageImplanter = имплант изучения паучьего языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnMothLanguageImplanter = имплант изучения ткачьего языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnReptilianLanguageImplanter = имплант изучения синта’унати
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnVoxLanguageImplanter = имплант изучения вокс-птичий
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnDemonLanguageImplanter = имплант изучения демонического языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnCatLanguageImplanter = имплант изучения кошачьего языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnMachineLanguageImplanter = имплант трансляции машинного кода
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnKoboltLanguageImplanter = имплант изучения кобальдского языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnPlafLanguageImplanter = имплант изучения акульего языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnVulpkaninLanguageImplanter = имплант изучения языка вульпканинов
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnXenomorphLanguageImplanter = имплант изучения языка ксеноморфов
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnDogLanguageImplanter = имплант изучения собачьего языка
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnAllLanguageImplanter = имплант изучения всех языков
++    .suffix = Адмемы
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
+diff --git a/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implants.ftl b/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implants.ftl
+new file mode 100644
+index 0000000000..51a985539d
+--- /dev/null
++++ b/Resources/Locale/en-US/_lust/prototypes/entities/objects/misc/language_implants.ftl
+@@ -0,0 +1,28 @@
++ent-LearnSlimeLanguageImplant = имплант изучения пузырчатого языка
++    .desc = Имплант изучения пузырчатого языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, подрагивание кожи и кратковременное желание растечься по полу.
++ent-LearnArachnidLanguageImplant = имплант изучения паучьего языка
++    .desc = Имплант изучения паучьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольные подёргивания конечностей и временная тяга к ткачеству.
++ent-LearnMothLanguageImplant = имплант изучения ткачьего языка
++    .desc = Имплант изучения ткачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++ent-LearnReptilianLanguageImplant = имплант изучения синта’унати
++    .desc = Имплант изучения синта’унати. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольное шипение и кратковременные вспышки территориальной агрессии.
++ent-LearnVoxLanguageImplant = имплант изучения вокс-птичий
++    .desc = Имплант изучения вокс-птичий. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное чириканье и кратковременные приступы чужого акцента.
++ent-LearnDemonLanguageImplant = имплант изучения демонического языка
++    .desc = Имплант изучения демонического языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и кратковременные приступы чужого акцента.
++ent-LearnCatLanguageImplant = имплант изучения кошачьего языка
++    .desc = Имплант изучения кошачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и стремление поточить когти о мебель.
++ent-LearnMachineLanguageImplant = имплант трансляции машинного кода
++    .desc = Имплант трансляции машинного кода. Подкожный имплант с простейшим модулем для трансляции машинного кода. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++ent-LearnKoboltLanguageImplant = имплант изучения кобальдского языка
++    .desc = Имплант изучения кобальдского языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное шипение и кратковременные приступы чужого акцента.
++ent-LearnPlafLanguageImplant = имплант изучения акульего языка
++    .desc = Имплант изучения акульего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, учащённое сердцебиение и кратковременное желание укусить собеседника.
++ent-LearnVulpkaninLanguageImplant = имплант изучения языка вульпканинов
++    .desc = Имплант изучения языка вульпканинов. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье, кратковременное желание укусить собеседника и ощущение, что нужно вертеть хвостом, даже если его нет.
++ent-LearnXenomorphLanguageImplant = имплант изучения языка ксеноморфов
++    .desc = Имплант изучения языка ксеноморфов. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное шипение и кратковременные приступы желания мытья полов.
++ent-LearnDogLanguageImplant = имплант изучения собачьего языка
++    .desc = Имплант изучения собачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье и ощущение, что нужно вертеть хвостом, даже если его нет.
++ent-LearnAllLanguageImplant = имплант изучения всех языков
++    .desc = Имплант изучения всех языков. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом.
+diff --git a/Resources/Locale/ru-RU/_lust/languages.ftl b/Resources/Locale/ru-RU/_lust/languages.ftl
+new file mode 100644
+index 0000000000..f44f29c542
+--- /dev/null
++++ b/Resources/Locale/ru-RU/_lust/languages.ftl
+@@ -0,0 +1,27 @@
++lust-language-menu = Языки
++lust-language-selected = { $language } (выбран)
++ui-options-function-open-language-menu = Открыть меню языков
++
++language-unknown-name = Неизвестно
++research-technology-language-implants = Простейшие языковые импланты
++language-general-name = Обще-галактический
++language-dwarf-name = Дварфийский
++language-dog-name = Собачий
++language-blob-name = Блобий
++language-slime-name = Пузырчатый
++language-arachnid-name = Це'хисс
++language-diona-name = Шелестящий
++language-moth-name = Ткачий
++language-reptilian-name = Синта’Унати
++language-demon-name = Демонический
++language-cat-name = Кошачий
++language-machine-name = Двоичный
++language-plaf-name = Эве-Пишту
++language-vulpkanin-name = Канилунц
++language-xenomorph-name = Эхоглосса
++language-carp-dragon-name = Ваал'хурис
++language-zombie-name = Зомбячий
++language-monkey-name = Обезьяний
++language-vox-name = Вокс-птичий
++language-necromorf-name = Некроморфский
++language-prison-name = Тюремный
+diff --git a/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implanters.ftl b/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implanters.ftl
+new file mode 100644
+index 0000000000..fba0a34375
+--- /dev/null
++++ b/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implanters.ftl
+@@ -0,0 +1,39 @@
++ent-LearnSlimeLanguageImplanter = имплант изучения пузырчатого языка
++    .suffix = Пузырчатый язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnArachnidLanguageImplanter = имплант изучения паучьего языка
++    .suffix = Паучий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnMothLanguageImplanter = имплант изучения ткачьего языка
++    .suffix = Ткачий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnReptilianLanguageImplanter = имплант изучения синта’унати
++    .suffix = Язык синта’унати
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnVoxLanguageImplanter = имплант изучения вокс-птичий
++    .suffix = Вокс-птичий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnDemonLanguageImplanter = имплант изучения демонического языка
++    .suffix = Демонический язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnCatLanguageImplanter = имплант изучения кошачьего языка
++    .suffix = Кошачий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnMachineLanguageImplanter = имплант трансляции машинного кода
++    .suffix = Язык машинного кода
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnPlafLanguageImplanter = имплант изучения акульего языка
++    .suffix = Акулий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnVulpkaninLanguageImplanter = имплант изучения языка вульпканинов
++    .suffix = Язык вульпканинов
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnXenomorphLanguageImplanter = имплант изучения языка ксеноморфов
++    .suffix = Язык ксеноморфов
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnAllLanguageImplanter = имплант изучения всех языков
++    .suffix = Все языки, Адмемы
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
++ent-LearnDogLanguageImplanter = имплант изучения собачьего языка
++    .suffix = Собачий язык
++    .desc = { ent-BaseImplantOnlyImplanter.desc }
+diff --git a/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implants.ftl b/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implants.ftl
+new file mode 100644
+index 0000000000..51a985539d
+--- /dev/null
++++ b/Resources/Locale/ru-RU/_lust/prototypes/entities/objects/misc/language_implants.ftl
+@@ -0,0 +1,28 @@
++ent-LearnSlimeLanguageImplant = имплант изучения пузырчатого языка
++    .desc = Имплант изучения пузырчатого языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, подрагивание кожи и кратковременное желание растечься по полу.
++ent-LearnArachnidLanguageImplant = имплант изучения паучьего языка
++    .desc = Имплант изучения паучьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольные подёргивания конечностей и временная тяга к ткачеству.
++ent-LearnMothLanguageImplant = имплант изучения ткачьего языка
++    .desc = Имплант изучения ткачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++ent-LearnReptilianLanguageImplant = имплант изучения синта’унати
++    .desc = Имплант изучения синта’унати. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольное шипение и кратковременные вспышки территориальной агрессии.
++ent-LearnVoxLanguageImplant = имплант изучения вокс-птичий
++    .desc = Имплант изучения вокс-птичий. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное чириканье и кратковременные приступы чужого акцента.
++ent-LearnDemonLanguageImplant = имплант изучения демонического языка
++    .desc = Имплант изучения демонического языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и кратковременные приступы чужого акцента.
++ent-LearnCatLanguageImplant = имплант изучения кошачьего языка
++    .desc = Имплант изучения кошачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и стремление поточить когти о мебель.
++ent-LearnMachineLanguageImplant = имплант трансляции машинного кода
++    .desc = Имплант трансляции машинного кода. Подкожный имплант с простейшим модулем для трансляции машинного кода. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++ent-LearnKoboltLanguageImplant = имплант изучения кобальдского языка
++    .desc = Имплант изучения кобальдского языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное шипение и кратковременные приступы чужого акцента.
++ent-LearnPlafLanguageImplant = имплант изучения акульего языка
++    .desc = Имплант изучения акульего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, учащённое сердцебиение и кратковременное желание укусить собеседника.
++ent-LearnVulpkaninLanguageImplant = имплант изучения языка вульпканинов
++    .desc = Имплант изучения языка вульпканинов. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье, кратковременное желание укусить собеседника и ощущение, что нужно вертеть хвостом, даже если его нет.
++ent-LearnXenomorphLanguageImplant = имплант изучения языка ксеноморфов
++    .desc = Имплант изучения языка ксеноморфов. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное шипение и кратковременные приступы желания мытья полов.
++ent-LearnDogLanguageImplant = имплант изучения собачьего языка
++    .desc = Имплант изучения собачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье и ощущение, что нужно вертеть хвостом, даже если его нет.
++ent-LearnAllLanguageImplant = имплант изучения всех языков
++    .desc = Имплант изучения всех языков. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом.
+diff --git a/Resources/Prototypes/Entities/Mobs/Cyborgs/base_borg_chassis.yml b/Resources/Prototypes/Entities/Mobs/Cyborgs/base_borg_chassis.yml
+index 9221b89da2..49c36404ea 100644
+--- a/Resources/Prototypes/Entities/Mobs/Cyborgs/base_borg_chassis.yml
++++ b/Resources/Prototypes/Entities/Mobs/Cyborgs/base_borg_chassis.yml
+@@ -8,2 +8,18 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
+   - type: Reactive
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/animals.yml b/Resources/Prototypes/Entities/Mobs/NPCs/animals.yml
+index 745ffd30a7..9ba537a947 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/animals.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/animals.yml
+@@ -533,2 +533,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: MothLanguage
++    knownLanguages:
++    - MothLanguage
+   - type: GhostRole
+@@ -1826,2 +1830,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: MonkeyLanguage
++    knownLanguages:
++    - MonkeyLanguage
+   - type: NameIdentifier
+@@ -1853,2 +1861,7 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - MonkeyLanguage
+   - type: NameIdentifier
+@@ -1902,2 +1915,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: ReptilianLanguage
++    knownLanguages:
++    - ReptilianLanguage
+   - type: NameIdentifier
+@@ -2013,2 +2030,7 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - ReptilianLanguage
+   - type: MobThresholds
+@@ -2855,2 +2877,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: ArachnidLanguage
++    knownLanguages:
++    - ArachnidLanguage
+   - type: VentCrawler # Suneise-edit
+@@ -3410,2 +3436,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: DogLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DogLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: DamageStateVisuals
+@@ -3633,2 +3668,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -4244,2 +4286,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: DionaLanguage
++    knownLanguages:
++    - DionaLanguage
+   - type: ReplacementAccent
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/argocyte.yml b/Resources/Prototypes/Entities/Mobs/NPCs/argocyte.yml
+index fd9b361324..998967fb57 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/argocyte.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/argocyte.yml
+@@ -1,2 +1,2 @@
+-﻿- type: entity
++- type: entity
+   save: false
+@@ -8,2 +8,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: XenomorphLanguage
++    knownLanguages:
++    - XenomorphLanguage
+   - type: NpcFactionMember
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/carp.yml b/Resources/Prototypes/Entities/Mobs/NPCs/carp.yml
+index 9d86c2a6ac..909c298562 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/carp.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/carp.yml
+@@ -7,2 +7,6 @@
+   components:
++    - type: Language # Lust edit
++      selectedLanguage: CarpDragonLanguage
++      knownLanguages:
++      - CarpDragonLanguage
+     - type: InputMover
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/pets.yml b/Resources/Prototypes/Entities/Mobs/NPCs/pets.yml
+index 606f2265cf..caf9d80311 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/pets.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/pets.yml
+@@ -20,2 +20,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: DogLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DogLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -166,2 +175,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: DogLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DogLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Grammar
+@@ -184,2 +202,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: CatLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - CatLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: NpcFactionMember
+@@ -210,2 +237,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: CatLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - CatLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: NpcFactionMember
+@@ -233,2 +269,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: CatLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - CatLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Fixtures
+@@ -260,2 +305,10 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Grammar
+@@ -275,2 +328,10 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    - CatLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -339,2 +400,11 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: DogLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DogLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -423,2 +493,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -457,2 +534,10 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    - DogLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -528,2 +613,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -594,2 +686,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -622,2 +721,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -644,2 +750,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -680,2 +793,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -749,2 +869,10 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    - ArachnidLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -822,2 +950,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: InteractionPopup
+@@ -853,2 +988,10 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    - SlimeLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: Sprite
+@@ -975,2 +1118,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+   - type: GhostRole
+@@ -1009,2 +1159,9 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
++    cantSpeakLanguages:
++    - GeneralLanguage
++    unlockLanguagesAfterMakeSentient:
++    - GeneralLanguage
+ #  - type: GhostRole
+@@ -1036,2 +1193,5 @@
+   components:
++  - type: Language # Lust edit
++    knownLanguages:
++    - GeneralLanguage
+   - type: Vocalizer
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/revenant.yml b/Resources/Prototypes/Entities/Mobs/NPCs/revenant.yml
+index ad698c5ee5..34db469c0f 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/revenant.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/revenant.yml
+@@ -8,2 +8,33 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - ReptilianLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
++    cantSpeakLanguages:
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - ReptilianLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
+   - type: Emag
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/simplemob.yml b/Resources/Prototypes/Entities/Mobs/NPCs/simplemob.yml
+index 7d4fecf847..aac718311c 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/simplemob.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/simplemob.yml
+@@ -10,2 +10,3 @@
+   components:
++  - type: Language # Lust edit: животные осваивают общий язык после обретения разума
+   - type: Reactive
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/slimes.yml b/Resources/Prototypes/Entities/Mobs/NPCs/slimes.yml
+index 6610ab46ae..6be6103568 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/slimes.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/slimes.yml
+@@ -1,2 +1,2 @@
+-﻿- type: entity
++- type: entity
+   name: basic slime
+@@ -117,2 +117,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: SlimeLanguage
++    knownLanguages:
++    - SlimeLanguage
+   - type: ReplacementAccent
+diff --git a/Resources/Prototypes/Entities/Mobs/NPCs/space.yml b/Resources/Prototypes/Entities/Mobs/NPCs/space.yml
+index 5da8cdcd09..b66df343a8 100644
+--- a/Resources/Prototypes/Entities/Mobs/NPCs/space.yml
++++ b/Resources/Prototypes/Entities/Mobs/NPCs/space.yml
+@@ -189,2 +189,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: ArachnidLanguage
++    knownLanguages:
++    - ArachnidLanguage
+   - type: VentCrawler # Sunrise-edit
+diff --git a/Resources/Prototypes/Entities/Mobs/Player/dragon.yml b/Resources/Prototypes/Entities/Mobs/Player/dragon.yml
+index f0eb5839b4..c77b4bad92 100644
+--- a/Resources/Prototypes/Entities/Mobs/Player/dragon.yml
++++ b/Resources/Prototypes/Entities/Mobs/Player/dragon.yml
+@@ -8,2 +8,6 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: CarpDragonLanguage
++    knownLanguages:
++    - CarpDragonLanguage
+   - type: Bloodstream
+diff --git a/Resources/Prototypes/Entities/Mobs/Player/mothershipcore.yml b/Resources/Prototypes/Entities/Mobs/Player/mothershipcore.yml
+index 02e9de6ff5..d959463554 100644
+--- a/Resources/Prototypes/Entities/Mobs/Player/mothershipcore.yml
++++ b/Resources/Prototypes/Entities/Mobs/Player/mothershipcore.yml
+@@ -6,2 +6,30 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
++    cantSpeakLanguages:
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
+   - type: InputMover # needs this to pilot the mothership
+diff --git a/Resources/Prototypes/Entities/Mobs/Player/silicon.yml b/Resources/Prototypes/Entities/Mobs/Player/silicon.yml
+index 7cefd05701..78ffe443e4 100644
+--- a/Resources/Prototypes/Entities/Mobs/Player/silicon.yml
++++ b/Resources/Prototypes/Entities/Mobs/Player/silicon.yml
+@@ -1,2 +1,2 @@
+-﻿# Be careful with these as they get removed on shutdown too!
++# Be careful with these as they get removed on shutdown too!
+ - type: entity
+@@ -6,2 +6,21 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DwarfLanguage
++    - DogLanguage
++    - SlimeLanguage
++    - ArachnidLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
++    - MonkeyLanguage
++    - VoxLanguage
+   - type: IntrinsicRadioReceiver
+@@ -112,2 +131,21 @@
+   components:
++  - type: Language # Lust edit
++    selectedLanguage: GeneralLanguage
++    knownLanguages:
++    - GeneralLanguage
++    - DwarfLanguage
++    - DogLanguage
++    - SlimeLanguage
++    - ArachnidLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
++    - MonkeyLanguage
++    - VoxLanguage
+   - type: IntrinsicRadioReceiver
+diff --git a/Resources/Prototypes/Entities/Objects/Specific/Robotics/mmi.yml b/Resources/Prototypes/Entities/Objects/Specific/Robotics/mmi.yml
+index dc7be16338..d2b057feb3 100644
+--- a/Resources/Prototypes/Entities/Objects/Specific/Robotics/mmi.yml
++++ b/Resources/Prototypes/Entities/Objects/Specific/Robotics/mmi.yml
+@@ -75,2 +75,21 @@
+   components:
++    - type: Language # Lust edit
++      selectedLanguage: GeneralLanguage
++      knownLanguages:
++      - GeneralLanguage
++      - DwarfLanguage
++      - DogLanguage
++      - SlimeLanguage
++      - ArachnidLanguage
++      - DionaLanguage
++      - MothLanguage
++      - ReptilianLanguage
++      - DemonLanguage
++      - CatLanguage
++      - MachineLanguage
++      - PlafLanguage
++      - VulpkaninLanguage
++      - XenomorphLanguage
++      - MonkeyLanguage
++      - VoxLanguage
+     - type: Organ # Sunrise-Edit
+diff --git a/Resources/Prototypes/Entities/Structures/Machines/lathe.yml b/Resources/Prototypes/Entities/Structures/Machines/lathe.yml
+index e14b84ace7..892dbfed01 100644
+--- a/Resources/Prototypes/Entities/Structures/Machines/lathe.yml
++++ b/Resources/Prototypes/Entities/Structures/Machines/lathe.yml
+@@ -229,2 +229,3 @@
+     - NightVisionDevice
++    - LanguageImplanters # Lust edit
+     # Sunrise-End
+diff --git a/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implanters.yml b/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implanters.yml
+new file mode 100644
+index 0000000000..fa9af43941
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implanters.yml
+@@ -0,0 +1,106 @@
++# Language implants
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnSlimeLanguageImplanter
++  name: имплант изучения пузырчатого языка
++  components:
++  - type: Implanter
++    implant: LearnSlimeLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnArachnidLanguageImplanter
++  name: имплант изучения паучьего языка
++  components:
++  - type: Implanter
++    implant: LearnArachnidLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnMothLanguageImplanter
++  name: имплант изучения ткачьего языка
++  components:
++  - type: Implanter
++    implant: LearnMothLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnReptilianLanguageImplanter
++  name: имплант изучения синта’унати
++  components:
++  - type: Implanter
++    implant: LearnReptilianLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnVoxLanguageImplanter
++  name: имплант изучения вокс-птичий
++  components:
++  - type: Implanter
++    implant: LearnVoxLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnDemonLanguageImplanter
++  name: имплант изучения демонического языка
++  components:
++  - type: Implanter
++    implant: LearnDemonLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnCatLanguageImplanter
++  name: имплант изучения кошачьего языка
++  components:
++  - type: Implanter
++    implant: LearnCatLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnMachineLanguageImplanter
++  name: имплант трансляции машинного кода
++  components:
++  - type: Implanter
++    implant: LearnMachineLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnPlafLanguageImplanter
++  name: имплант изучения акульего языка
++  components:
++  - type: Implanter
++    implant: LearnPlafLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnVulpkaninLanguageImplanter
++  name: имплант изучения языка вульпканинов
++  components:
++  - type: Implanter
++    implant: LearnVulpkaninLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnXenomorphLanguageImplanter
++  name: имплант изучения языка ксеноморфов
++  components:
++  - type: Implanter
++    implant: LearnXenomorphLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnAllLanguageImplanter
++  name: имплант изучения всех языков
++  suffix: Адмемы
++  components:
++  - type: Implanter
++    implant: LearnAllLanguageImplant
++
++- type: entity
++  parent: BaseImplantOnlyImplanter
++  id: LearnDogLanguageImplanter
++  name: имплант изучения собачьего языка
++  components:
++  - type: Implanter
++    implant: LearnDogLanguageImplant
+diff --git a/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implants.yml b/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implants.yml
+new file mode 100644
+index 0000000000..749d6f6096
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Entities/Objects/Misc/language_implants.yml
+@@ -0,0 +1,170 @@
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnSlimeLanguageImplant
++  name: имплант изучения пузырчатого языка
++  description: Имплант изучения пузырчатого языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, подрагивание кожи и кратковременное желание растечься по полу.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - SlimeLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnArachnidLanguageImplant
++  name: имплант изучения Це'хисс языка
++  description: Имплант изучения Це'хисс языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольные подёргивания конечностей и временная тяга к ткачеству.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - ArachnidLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnMothLanguageImplant
++  name: имплант изучения ткачьего языка
++  description: Имплант изучения ткачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - MothLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnReptilianLanguageImplant
++  name: имплант изучения синта’унати
++  description: Имплант изучения синта’унати. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, непроизвольное шипение и кратковременные вспышки территориальной агрессии.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - ReptilianLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnVoxLanguageImplant
++  name: имплант изучения вокс-птичий
++  description: Имплант изучения вокс-птичий. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное чириканье и кратковременные приступы чужого акцента.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - VoxLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnDemonLanguageImplant
++  name: имплант изучения демонического языка
++  description: Имплант изучения демонического языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и кратковременные приступы чужого акцента.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - DemonLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnCatLanguageImplant
++  name: имплант изучения кошачьего языка
++  description: Имплант изучения кошачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное мурлыканье и стремление поточить когти о мебель.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - CatLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnMachineLanguageImplant
++  name: имплант трансляции машинного кода
++  description: Имплант трансляции машинного кода. Подкожный имплант с простейшим модулем для трансляции машинного кода. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное жужжание и кратковременные приступы чужого акцента.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - MachineLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnPlafLanguageImplant
++  name: имплант изучения Эве-Пишту
++  description: Имплант изучения Эве-Пишту. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, учащённое сердцебиение и кратковременное желание укусить собеседника.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - PlafLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnVulpkaninLanguageImplant
++  name: имплант изучения языка вульпканинов
++  description: Имплант изучения языка вульпканинов. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье, кратковременное желание укусить собеседника и ощущение, что нужно вертеть хвостом, даже если его нет.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - VulpkaninLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnXenomorphLanguageImplant
++  name: имплант изучения языка Эхоглосса
++  description: Имплант изучения языка Эхоглосса. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное шипение и кратковременные приступы желания мытья полов.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - XenomorphLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnAllLanguageImplant
++  name: имплант изучения всех языков
++  description: Имплант изучения всех языков. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - GeneralLanguage
++    - ArachnidLanguage
++    - SlimeLanguage
++    - DionaLanguage
++    - MothLanguage
++    - ReptilianLanguage
++    - VoxLanguage
++    - DemonLanguage
++    - CatLanguage
++    - MachineLanguage
++    - PlafLanguage
++    - VulpkaninLanguage
++    - XenomorphLanguage
++    - DwarfLanguage
++    - DogLanguage
++    - MonkeyLanguage
++
++- type: entity
++  parent: BaseSubdermalImplant
++  id: LearnDogLanguageImplant
++  name: имплант изучения собачьего языка
++  description: Имплант изучения собачьего языка. Подкожный имплант с простейшим языковым модулем. Подключается к периферийным нервам и подменяет часть сигналов, связанных с речью и слухом. Возможны лёгкие сбои восприятия, самопроизвольное гавканье и ощущение, что нужно вертеть хвостом, даже если его нет.
++  categories: [ HideSpawnMenu ]
++  components:
++  - type: SubdermalImplant
++  - type: LearnLanguageImplant
++    language:
++    - DogLanguage
+\ No newline at end of file
+diff --git a/Resources/Prototypes/_Lust/Languages/languages.yml b/Resources/Prototypes/_Lust/Languages/languages.yml
+new file mode 100644
+index 0000000000..24d9e0c548
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Languages/languages.yml
+@@ -0,0 +1,817 @@
++- type: language
++  id: GeneralLanguage
++  name: language-general-name
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 6
++  syllables:
++    - ка
++    - ло
++    - ми
++    - ра
++    - ту
++    - не
++    - зис
++    - во
++    - ши
++    - та
++    - фо
++    - ли
++    - ксу
++    - ге
++    - пра
++    - ви
++    - он
++    - се
++    - да
++    - му
++    - ки
++    - раэ
++    - йо
++    - че
++    - бра
++    - ки
++    - но
++    - лу
++    - пи
++    - те
++    - за
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: DwarfLanguage
++  name: language-dwarf-name
++  speechMode: Pattern
++  minSyllables: 2
++  maxSyllables: 6
++  patterns:
++    - де
++    - мал
++    - муж
++    - жен
++    - дел
++    - не
++    - йа
++    - есть
++    - пе
++    - зна
++    - вы
++    - ты
++    - при
++    - все
++    - от
++    - здр
++    - ме
++    - теб
++    - себ
++    - где
++    - ой
++    - мале
++    - боль
++    - су
++    - да
++    - кон
++    - то
++    - мой
++    - нет
++    - па
++    - ма
++    - ср
++    - но
++    - ста
++    - про
++    - вет
++    - бл
++    - ес
++    - сле
++    - сде
++    - пи
++    - ник
++    - де
++    - зд
++    - оч
++    - син
++    - кап
++    - бе
++  replacements:
++    - дэв
++    - млч
++    - мчш
++    - жчш
++    - дэ
++    - нэ
++    - йэ
++    - йэ
++    - пэр
++    - знат
++    - вы
++    - ты
++    - прыв
++    - всэ
++    - од
++    - здрав
++    - мэн
++    - тэб
++    - сэб
++    - гдэ
++    - ойё
++    - мэл
++    - гром
++    - кн
++    - Ойи
++    - конэ
++    - тож
++    - мойё
++    - нэт
++    - уру
++    - дель
++    - свэ
++    - свэ
++    - быв
++    - врр
++    - эс
++    - слэ
++    - сд
++    - наг
++    - нык
++    - дэ
++    - здар
++    - дыр
++    - зл
++    - кэп
++    - дэри
++    - хы
++    - гы
++
++- type: language
++  id: DogLanguage
++  name: language-dog-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/vulp.png
++  generateTTSForLexicon: true
++  speechMode: Lexicon
++  lexicon:
++    - гав
++    - гаф
++    - тяф
++    - вуф
++    - ваф
++    - ррр
++    - рррр
++    - фрр
++    - фуф
++    - бау
++    - бафф
++    - грр
++    - гры
++    - вау
++    - тяв
++    - тявк
++    - фяв
++    - урр
++    - вврр
++    - гыф
++    - зууф
++
++
++- type: language
++  id: BlobLanguage
++  name: language-blob-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/zombie.png
++  speechMode: Syllable
++  minSyllables: 1
++  maxSyllables: 5
++  syllables:
++    - бл
++    - блуб
++    - гл
++    - глоп
++    - умп
++    - бло
++    - блу
++    - глу
++    - блуп
++    - глопп
++    - уля
++    - бля
++    - бум
++    - блум
++    - глум
++    - плуп
++    - блупп
++    - грум
++    - урп
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: SlimeLanguage
++  name: language-slime-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/slime.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 6
++  syllables:
++    - сли
++    - плоп
++    - блумп
++    - глуп
++    - злю
++    - плью
++    - слип
++    - блип
++    - плуп
++    - глюп
++    - шлю
++    - слиу
++    - блу
++    - флю
++    - плюп
++    - глупп
++    - блуп
++    - шлум
++  generateTTSForLexicon: true
++
++- type: language
++  id: ArachnidLanguage
++  name: language-arachnid-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/spider.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 5
++  syllables:
++    - сс
++    - кк
++    - чш
++    - хс
++    - ск
++    - хр
++    - шш
++    - тк
++    - кл
++    - скр
++    - хсс
++    - чс
++    - ср
++    - клш
++  generateTTSForLexicon: true
++
++- type: language
++  id: DionaLanguage
++  name: language-diona-name
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 6
++  syllables:
++    - шш
++    - сш
++    - тт
++    - рр
++    - лл
++    - ши
++    - сы
++    - тс
++    - тр
++    - фр
++    - ск
++    - рш
++    - св
++    - лш
++    - хр
++    - фш
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: MothLanguage
++  name: language-moth-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/moth.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 5
++  syllables:
++    - та
++    - чу
++    - лу
++    - ми
++    - ши
++    - фу
++    - ци
++    - луф
++    - ту
++    - шиу
++    - чуф
++    - миу
++    - фли
++    - цу
++    - шу
++    - фи
++    - тсу
++    - му
++    - ли
++    - циу
++    - флу
++    - шуф
++    - ти
++    - лю
++    - шиуф
++    - чии
++    - фуи
++  generateTTSForLexicon: true
++
++- type: language
++  id: ReptilianLanguage
++  name: language-reptilian-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/lawyer.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 5
++  syllables:
++    - сха
++    - кре
++    - шу
++    - зи
++    - тра
++    - ло
++    - гра
++    - фу
++    - хе
++    - ши
++    - крэ
++    - тру
++    - жи
++    - фра
++    - схи
++    - хру
++    - злу
++    - кша
++    - флу
++    - гре
++    - шуи
++    - жра
++    - шиэ
++    - кро
++    - хло
++    - зра
++    - трэ
++    - фли
++    - скру
++  generateTTSForLexicon: true
++
++- type: language
++  id: DemonLanguage
++  name: language-demon-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/syndibot.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 5
++  syllables:
++    - ар
++    - ож
++    - ун
++    - ки
++    - ла
++    - ве
++    - зы
++    - хе
++    - то
++    - ми
++    - жу
++    - ра
++    - фи
++    - со
++    - де
++    - ну
++    - ши
++    - ка
++    - ву
++    - ли
++    - зо
++    - тэ
++    - бо
++    - нэ
++    - ху
++    - ер
++    - жи
++    - эо
++    - ыу
++    - чу
++    - ша
++    - кэ
++    - ри
++    - ма
++    - ва
++    - эи
++    - лу
++    - фэ
++    - ро
++    - си
++    - эя
++    - ыа
++    - юэ
++    - го
++    - иэ
++    - зу
++    - че
++    - ыо
++  generateTTSForLexicon: true
++
++- type: language
++  id: CatLanguage
++  name: language-cat-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/cat.png
++  speechMode: Lexicon
++  generateTTSForLexicon: true
++  lexicon:
++  - мур
++  - мяу
++  - тяф
++  - вуф
++  - ваф
++  - пшш
++  - фрр
++  - мрр
++  - нyaa
++  - хрум
++  - пуу
++  - миу
++  - мррр
++  - шшш
++  - пфу
++  - йяу
++  - ксс
++  - фуу
++  - мяу~!
++  - мурр^
++  - нyaa*
++  - шшш~
++  - мяу<
++  - фрр>
++  - мурр~
++  - тьф*
++  - мяу^
++  - нyaa!
++
++- type: language
++  id: MachineLanguage
++  name: language-machine-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/machine.png
++  speechMode: Alphabet
++  generateLength: 4
++  alphabet:
++    - 0
++    - 1
++    - бип
++    - боп
++    - ZERO
++    - 'NULL'
++  generateTTSForLexicon: true
++
++- type: language
++  id: PlafLanguage
++  name: language-plaf-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/plaf.png
++  speechMode: Syllable
++  minSyllables: 1
++  maxSyllables: 5
++  syllables:
++    - пи
++    - шу
++    - та
++    - ви
++    - ка
++    - ро
++    - зу
++    - ми
++    - ну
++    - са
++    - ли
++    - фо
++    - чи
++    - ве
++    - па
++    - ту
++    - ра
++    - ши
++    - ко
++    - бу
++    - ды
++    - жу
++    - зи
++    - фи
++    - хи
++    - ла
++    - сы
++    - ре
++    - га
++    - до
++    - ки
++    - ли
++    - на
++    - си
++    - ши
++    - та
++    - во
++    - зу
++    - мэ
++    - фу
++    - жи
++    - ро
++    - ва
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: VulpkaninLanguage
++  name: language-vulpkanin-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/vulp.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 7
++  syllables:
++    - ка
++    - ли
++    - ну
++    - ца
++    - во
++    - ши
++    - ру
++    - ми
++    - фа
++    - та
++    - ле
++    - са
++    - ки
++    - шу
++    - ра
++    - ви
++    - лю
++    - до
++    - же
++    - фи
++    - со
++    - не
++    - ци
++    - ва
++    - хи
++    - ло
++    - гу
++    - пи
++    - те
++    - ки
++    - мо
++    - ри
++    - ха
++    - сы
++    - ли
++    - чу
++    - ве
++    - фо
++    - ди
++    - зу
++    - ши
++    - та
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: XenomorphLanguage
++  name: language-xenomorph-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/alien.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 5
++  syllables:
++    - χа
++    - ɘо
++    - ɔχ
++    - ʂɪ
++    - ʈʊ
++    - ɑɑ
++    - ƙʀ
++    - ƥɱ
++    - ɳʃ
++    - θð
++    - хх
++    - оо
++    - сс
++    - тт
++    - ии
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: CarpDragonLanguage
++  name: language-carp-dragon-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/guardian.png
++  speechMode: Syllable
++  minSyllables: 2
++  maxSyllables: 7
++  syllables:
++    - ваа
++    - хур
++    - рис
++    - кро
++    - хра
++    - дуу
++    - зир
++    - тро
++    - фаа
++    - зху
++    - льо
++    - рии
++    - кар
++    - вуу
++    - гхи
++    - ше
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: ZombieLanguage
++  name: language-zombie-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/zombie.png
++  speechMode: Syllable
++  minSyllables: 1
++  maxSyllables: 4
++  syllables:
++    - мааазги
++    - груууа
++    - брууух
++    - уааах
++    - рррр
++    - зооом
++    - гнууу
++    - фрааааг
++    - мзги
++    - шрууу
++    - ваааа
++    - хрууу
++    - маа азги иии
++    - мазги
++  generateTTSForLexicon: true
++
++
++- type: language
++  id: NecromorfLanguage
++  name: language-necromorf-name
++  speechMode: Syllable
++  minSyllables: 1
++  maxSyllables: 5
++  syllables:
++    - кхру
++    - шррр
++    - гнээ
++    - ззуу
++    - фааа
++    - рррг
++    - хууу
++    - тррр
++    - шшрр
++    - вууу
++    - нэээ
++    - гххх
++    - фррр
++    - ххуу
++    - зррр
++  generateTTSForLexicon: true
++
++- type: language
++  id: MonkeyLanguage
++  name: language-monkey-name
++  speechMode: Lexicon
++  generateTTSForLexicon: true
++  lexicon:
++    - угу
++    - аха
++    - ии
++    - уу
++    - эээ
++    - ооо
++    - кики
++    - ча-ча
++    - ууух
++    - ааа~
++    - ыыы
++    - хи-хи
++    - ооох
++    - ээ-хэ
++    - ууух!
++
++
++- type: language
++  id: VoxLanguage
++  name: language-vox-name
++  icon: /Textures/_Lust/Languages/LanguageIcons/vox.png
++  speechMode: Lexicon
++  generateTTSForLexicon: true
++  lexicon:
++    - Чирик!
++    - Твиии!
++    - Круу!
++    - Трррр!
++    - Пиип!
++    - Квии!
++    - Цвирр!
++    - Твип!
++    - Кирик!
++    - Чирп!
++    - Триии!
++    - Чуурик!
++    - Ку-ку!
++    - Пик-пик!
++    - Твииирр!
++    - Птруу!
++    - Цвии!
++    - Тррии!
++    - Кии-пик!
++    - Чууп!
++    - Кааа!
++    - Тви-тви!
++    - Чирчир!
++    - Квик-квик!
++    - Трруу!
++    - Чииии...
++    - Пиииип!
++    - Цвип!
++    - Кви-ква!
++    - Кряа!
++    - Трриик!
++    - Пии-тии!
++    - Кик!
++    - Крутик!
++    - Пикарр!
++    - Тви-тирр!
++    - Цииир!
++    - Киича!
++    - Три-три!
++    - Чик-чирр!
++    - Пиууу!
++    - Цвиик!
++    - Твик-твик!
++    - Трррии!
++    - Чиика!
++    - Твииит!
++    - Трриип!
++    - Пиик!
++    - Крааа!
++    - Чвиир!
++    - Чаат!
++    - Тпииир!
++    - Квипп!
++    - Цвиип!
++    - Твиппи!
++    - Кааар!
++    - Чиррр!
++    - Птири!
++    - Квввв!
++    - Триик!
++    - Тпиик!
++    - Квиии...
++    - Чик-чик!
++    - Тии-ка!
++    - Квикар!
++    - Кулик!
++    - Пиу-пиу!
++    - Квии-пти!
++    - Тррууу!
++    - Чаарик!
++    - Чииирр!
++    - Крик!
++    - Тви-карр!
++    - Цвирика!
++    - Пиппи!
++    - Чип-чип!
++    - Тви-кри!
++    - Киич!
++    - Кряп!
++    - Цвииии!
++    - Пии-ква!
++    - Чиири!
++    - Пииииу!
++    - Твиича!
++    - Трррр!
++    - Чрииик!
++    - Квири!
++    - Пии-пик!
++    - Тпирр!
++    - Квиии-ка!
++    - Твиипа!
++    - Кваа!
++    - Цииирик!
++    - Пти-ква!
++    - Квикр!
++    - Кааа-карр!
++    - Трииип!
++    - Ччвии!
++    - Киииу!
++    - Трррра!
++
++- type: language
++  id: PrisonLanguage
++  name: language-prison-name
++  speechMode: Lexicon
++  canBeUnderstoodWithoutKnowledge: false
++  generateTTSForLexicon: true
++  lexicon:
++  - "[ДАННЫЕ УДАЛЕНЫ]"
+diff --git a/Resources/Prototypes/_Lust/Recipes/Lathes/Packs/language_implanters.yml b/Resources/Prototypes/_Lust/Recipes/Lathes/Packs/language_implanters.yml
+new file mode 100644
+index 0000000000..89de214c39
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Recipes/Lathes/Packs/language_implanters.yml
+@@ -0,0 +1,17 @@
++## Dynamic
++
++- type: latheRecipePack
++  id: LanguageImplanters
++  recipes:
++  - LearnSlimeLanguageImplanter
++  - LearnArachnidLanguageImplanter
++  - LearnMothLanguageImplanter
++  - LearnReptilianLanguageImplanter
++  - LearnVoxLanguageImplanter
++  - LearnDemonLanguageImplanter
++  - LearnCatLanguageImplanter
++  - LearnMachineLanguageImplanter
++  - LearnPlafLanguageImplanter
++  - LearnVulpkaninLanguageImplanter
++  - LearnXenomorphLanguageImplanter
++  - LearnDogLanguageImplanter
+diff --git a/Resources/Prototypes/_Lust/Recipes/Lathes/language_implants.yml b/Resources/Prototypes/_Lust/Recipes/Lathes/language_implants.yml
+new file mode 100644
+index 0000000000..7c3ef0f309
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Recipes/Lathes/language_implants.yml
+@@ -0,0 +1,72 @@
++# DS14-Languages
++- type: latheRecipe
++  abstract: true
++  id: BaseImplantRecipe
++  categories:
++  - Implants
++  materials:
++    Steel: 400
++    Glass: 200
++    Plastic: 200
++    Gold: 500
++  completetime: 6
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnSlimeLanguageImplanter
++  result: LearnSlimeLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnArachnidLanguageImplanter
++  result: LearnArachnidLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnMothLanguageImplanter
++  result: LearnMothLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnReptilianLanguageImplanter
++  result: LearnReptilianLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnVoxLanguageImplanter
++  result: LearnVoxLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnDemonLanguageImplanter
++  result: LearnDemonLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnCatLanguageImplanter
++  result: LearnCatLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnMachineLanguageImplanter
++  result: LearnMachineLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnPlafLanguageImplanter
++  result: LearnPlafLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnVulpkaninLanguageImplanter
++  result: LearnVulpkaninLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnXenomorphLanguageImplanter
++  result: LearnXenomorphLanguageImplanter
++
++- type: latheRecipe
++  parent: BaseImplantRecipe
++  id: LearnDogLanguageImplanter
++  result: LearnDogLanguageImplanter
+diff --git a/Resources/Prototypes/_Lust/Research/language_implants.yml b/Resources/Prototypes/_Lust/Research/language_implants.yml
+new file mode 100644
+index 0000000000..aafc793bda
+--- /dev/null
++++ b/Resources/Prototypes/_Lust/Research/language_implants.yml
+@@ -0,0 +1,25 @@
++# DS14-Languages
++- type: technology
++  id: LanguageImplants
++  name: research-technology-language-implants
++  icon:
++    sprite: Objects/Specific/Medical/implanter.rsi
++    state: implanter0
++    layers:
++    - state: implanter1
++  discipline: CivilianServices
++  tier: 2
++  cost: 10000
++  recipeUnlocks:
++  - LearnSlimeLanguageImplanter
++  - LearnArachnidLanguageImplanter
++  - LearnMothLanguageImplanter
++  - LearnReptilianLanguageImplanter
++  - LearnVoxLanguageImplanter
++  - LearnDemonLanguageImplanter
++  - LearnCatLanguageImplanter
++  - LearnMachineLanguageImplanter
++  - LearnPlafLanguageImplanter
++  - LearnVulpkaninLanguageImplanter
++  - LearnXenomorphLanguageImplanter
++  - LearnDogLanguageImplanter
+diff --git a/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg b/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg
+new file mode 100644
+index 0000000000..91c89f3d9b
+--- /dev/null
++++ b/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg
+@@ -0,0 +1,19 @@
++<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
++<!-- Uploaded to: SVG Repo, www.svgrepo.com, Transformed by: SVG Repo Mixer Tools -->
++<svg width="64px" height="64px" viewBox="0 0 24 24" id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" fill="#000000">
++<g id="SVGRepo_bgCarrier" stroke-width="0"/>
++<g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"/>
++<g id="SVGRepo_iconCarrier">
++<defs>
++<style>.cls-1{fill:none;stroke:#ffffff;stroke-miterlimit:10;stroke-width:1.92px;}</style>
++</defs>
++<line class="cls-1" x1="0.5" y1="3.35" x2="12" y2="3.35"/>
++<line class="cls-1" x1="6.25" y1="0.48" x2="6.25" y2="3.35"/>
++<path class="cls-1" d="M9.12,3.35c0,3.52-3.28,8.2-7.66,10.55"/>
++<path class="cls-1" d="M4.51,7.37A16.4,16.4,0,0,0,11,13.9"/>
++<polyline class="cls-1" points="12.96 22.52 16.79 11.98 17.75 11.98 21.58 22.52"/>
++<line class="cls-1" x1="20.43" y1="18.69" x2="15.07" y2="18.69"/>
++<line class="cls-1" x1="11.04" y1="22.52" x2="14.88" y2="22.52"/>
++<line class="cls-1" x1="19.67" y1="22.52" x2="23.5" y2="22.52"/>
++</g>
++</svg>
+\ No newline at end of file
+diff --git a/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png b/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..1736a11065344780502f9b664dbbec6f10f57cb9
+GIT binary patch
+literal 1761
+zcmY*adsvcL9tOOi8IxmaW|pO<l>vf?1EH;@BAS|)yv&#a!l$3gMZhpkv)Y-wWF}ZC
+zmd(0omU(HMF)mG_O}dWQ(?jM=B`aI)nvG-4q@keBe$4jF?w;p4=XX2j{k`Wsf1Jug
+zu~gI=w>2;r3`L6!OMooiGVN@kb?d&0Tad99?x!W$LF2d`s{)GQ!UXDmSl0vh8A~xc
+zG$s@VyH)G3%&>uCdwyh^5C+3|S|<F)bG-ygZW4v3iV}H%NX!thVPdfu19J0(SqwfK
+z!xLmT%~9MS)H7gGswg$)AUTW2!7x}nCL2@4;X|ikFv`9nJ|ioSE!xIpXM@~e-#6-h
+z-)$f(*f%9G#y^ICfSm(I77N&k#j#0Q#d%pImhZk0)EY_=8A9N&MT~7loP4g3Tomm2
+zJ1`mYEorQ02t~jG$O&N)A9g@duxE})#3y617M|h&3qvf9L?U7R@mM?_4edY+k8wqe
+zA~aX%^#LG^EzA;td=bdwZnFR~n7l$!uxDW*$RYy_Adtyo1)`aZ02UgDV=>SSRsaso
+z3J72Y1>!!z130GVhxQ^6_-}u%@PiDHAXrNUi^KR^C|i7ToB(7)EG#WUaFpNc|Cgg+
+zEkyo@Sjc}e&|M+#4`nPe{h=<K3rQ-5wA)kP-~hdC7cDF_Dd)grS#-sg!;W8c6a!Au
+zhLOG7*ZF$JI~IPN)Dp@%<(c*Tw8CB$zwxAD|9B_naJu4A&D`XYW@pu@DpyZe=e1Fj
+zi{+7n?e?+}7QWzDQ`tu2{ExTW-grrs#y$`ChQx)GF_L~-lp@Z&O{{w<>EesyN|ok%
+zwO_6us>gNFesS+NQ{J6tRT*{R2i8w&lhtN{IFk$Hc`t;=cPr{EFUO##FRSC6O~Lm&
+z`|^_sO-WCYrzLj_j2Duhd94Tf?rYBlRR;!4u7q7PN}^@HGe~jf<|`yHOD!LG4g~d9
+z5)RekNRn8U84!C^-&J~F{aa3%eA<mB1&H<RCzY?7qGjkx<>0#=leBbQx%@QHH=)H8
+zZW-0$#hEzHdH>$!SL((ZrMYvi?AQJtrSH`2>A8@mUN4&0+$u2e_JaD&&Rp$m(zPHn
+z+v?7j2#sI-BNQNXX{)PmeDa`WOmEz1{>{M~b*2}W(fU;@r`$Lg_V+5;_wZR5ak`Wi
+zWcBCD{Epfib`q1Wd@9Cjg=mCdJwtPEukCWwEbO4JFbu0L=qFU>arXIf<Q)%N%138y
+zo(<#r1d(otSZ8F0^&(P%89MAl7pF5xn#A}_u)I6kr@;U9?ijMywP+u_{cNQv3PIWA
+z>!_Ukr;QdlVf9nOXIL;}d`y<=*cN)#rY&j~JG6Kdo?#Pfwf^(>g7G7G&5dOrSKAV}
+z0;zELB<1;(!_BHC8GJ3`#D$lp1G>R>-eyCF;gaM#sixFM|K8U8uM~Po>BJCB%{=FB
+z7-;9&_t+N&`y`_O5l_#fX_E~(;~g&VWb!=bLF+~TA(x`PuRlY~)}%R^y^m~JAZdo=
+zyZ$=!r*f30(Y4;{G9r0c(H5!l@{!C-<g4v9k+0*Pg5}kki|uHq?h1`j^B4NFEiXPr
+z+>xH@mlE7pI?od>Gi~mCyi!*rwb_bn-ucw~=jsA9oNL`&M{q3tSu$rIXVuiwZO32F
+z$9Zs6H@j`S5SR_K(|$)r@0V<N3l7}gx7gfK+XcPB$*cG19%Cz-W`h~`?W=YdO`rcm
+z9R1ipzioq^?AcGf<BvMhLYzz<&QqxDw4+*W$n{IwiW&5EZ_?It@6TRx(L_ExOY}=C
+zE{KSjELCll5^@2m?(uHkX6<Z`{Dty?{s)?>gdE)s53!?~@{8B;$&ZE7nK!>k2EPVd
+z9|r0IsP`mt=dq}ZTx{o=$<k0lU$q)b>_xWdRlmU7?D!fzZ`3SVCG@^qxUp%^QDf^d
+zs_yQdQ6Sx26|wt7)s7L8!ItK5GMtTG;_lj&)>X5lwtc%i&+JCM>TL(D-?A%8iMgr>
+z8tp5;T(|8rw;W4$=90gVul=#%Q~is4l_{Tltt{$TA56M^_`&?4An)tKk|R32L2Nj9
+zJi2jWDV{dUOb^pV(Z5#2C47`HcTcl?k@^y^)af^V=dnRi(%*;%rz3sFoW$K`ef1Bi
+zbfEgC)L2I-2Wm&GI2o(K;AR}1<0EsHT$B%ww-Vo(zioP=P_MgfT5bN`jMe7%gf?f*
+vm1Ph6Fuxg@Z#|JrgelGU>DbmQl;04@9O|Q66a7~#Uj{8aHmqwu{nWn!l`;rJ
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png.yml b/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png.yml
+new file mode 100644
+index 0000000000..dabd6601f7
+--- /dev/null
++++ b/Resources/Textures/_Lust/Languages/Interface/language-translation-svgrepo.svg.192dpi.png.yml
+@@ -0,0 +1,2 @@
++﻿sample:
++  filter: true
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/alien.png b/Resources/Textures/_Lust/Languages/LanguageIcons/alien.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..e75ce012a3f4e58078e9ac7c68e26bc4e0dcde38
+GIT binary patch
+literal 421
+zcmV;W0b2fvP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$Ur9tkR9J=WmN84iKp2LfXa-9KDQ+&_UOI?~oBAIdyNmz9xr;x+y<`7^(5+IW
+zgSa`wMJI7FxK!eh`(kq3<yurOL*6Cu_Dj<Dx$nD6ghxuL89<UGU2P5ivVOz&2mV{J
+z>jz14*c)nRoRTMd(8l05^`hVeB42@-?EZaRTmM6VO1-Nmf)glu!0cY7R0?p?y8vLP
+zv!yGC)(469I=cY8e7?a7(-5A3B$uRcQ%Qb#eFnhO?JEHDX<n6O*)c#AMR%Ter21-|
+zhTsH>DKJUMnjf9+12CUHS8gm3_|Vp)?FG^clf_7^N>4P0fXGFnMtyy)5bz}z1t;J<
+z3u@E{Sbi<H0piWrIt8*HoF804PQp43!3j9e0<#y=Vw~+VcfiuxLzRSBU7A2(?H(|b
+ziChU~ttX4o%;pCt;M@nybKN)3fHk2{%_ATxeIJOmR<czUoItBqty+BpFkg7{YUD3P
+P00000NkvXXu0mjfM9sH?
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/cat.png b/Resources/Textures/_Lust/Languages/LanguageIcons/cat.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..04189da7a8aaa2779f1636d7f19e9882e400f1f5
+GIT binary patch
+literal 3040
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/default.png b/Resources/Textures/_Lust/Languages/LanguageIcons/default.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..520805cfb6038b526e32ad1c5529870cf9fbaeaa
+GIT binary patch
+literal 309
+zcmeAS@N?(olHy`uVBq!ia0vp^3LwnE1|*BCs=fdz#^NA%Cx&(BWL^R}?>$`{Ln2z=
+zPBr9eHV|=$_crfNFEH_NjH%*y|KP#QJ?-oTC7I%LyJU+Q*xSqACoQ;<wU|TeY&6fq
+z&nN5c?>8L$@cvCnlg#m*KAw6@x7>QVQa{aJ_2V2Kseq~Ko=gq7w---x4`i|TS##N8
+z`zHe)-G*K3<}>(SW++&{%D6%M$k*t3Hs={T9!KQX&WN~kz)^ig^v^jthaKXdt`q1l
+zd%5-g?HkNMuKf2^Rz?P_RyuhOul;AFO71yZD!?M=5Gc}YD?h9L=p#0@yNvh0m*)R=
+zi+8^I+r*bq<Ft@TwbiszsQ?Y(Ag`^a(NDXM@=EZuiPs-=NtqDpegx=s22WQ%mvv4F
+FO#s$Gd;$Of
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/guardian.png b/Resources/Textures/_Lust/Languages/LanguageIcons/guardian.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..135c92a3c8c6702d80cde3f1804428c2d5465703
+GIT binary patch
+literal 327
+zcmV-N0l5B&P)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$0ZBwbR9J=Wm$43lKn#YfaRAv257ESt!T0Iv^RV`P92`w}2;zoubkHV8!*R#u
+z%pJym>m4-o``ZHm{&ENr2@%PNTSRPQ<=@6il<Waqgj~du6WE2`sH;N6CL~XO1jNs-
+z>-e+OfKee46+VfX*=thrBVZE|jXZt~!^w>IRdrF<1H4IG=kg{eu(56EUXZT0^}xOF
+z2>{?w*F3e)%+F80v$>v}K*%|8Gy~~{qAW-I;=R#3lf96ffVBri-|}9RFM*jU@H+GL
+z{AWubWD0I(ARcSkD%Q%6fUo!Bv95IK_hNnoTynkLmTEl&wCAz@4U!WGR;)jy^%D3Q
+Zy#Q`jY_xspb1(n^002ovPDHLkV1ikjlv4lz
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/lawyer.png b/Resources/Textures/_Lust/Languages/LanguageIcons/lawyer.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..aed6c90f13d47e0b077f7986838199a62a45fa8b
+GIT binary patch
+literal 378
+zcmV-=0fqjFP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$G)Y83R9J=WmO+k0P!NVclevIf*jnKRT*4XHI)E)_kT?T3z(Q=TT)@H+^kPy8
+zugy$Pw}j64b}Fw({pzn*aB=b9(H=c$S=J0N3<Ch;I6j>F6CZoL<Q0CcA_#&R!1sLs
+zq9_8OZCh9<;kxd;6_@-x&sTBb{0c~AMNzEcwrvBT>pB2&90QPL8329Xv&@t8Y7ZT*
+zz^59Jf2LNTQrGon+%(PAbJukMIF17g1%&e`AU>CFS1WlI>52Dof%HI<B)fj-eO!>H
+zsm7NJHvRuB=XZgMVHmr9NZeIbm4s$asepR>y^7~~uu$}LF1VWmG7)9gs}-nw!8A><
+zaW_bwx*w<<uE1RnG)<!cgkiYaaLTe=%?GtI&+}#$dx0n>=f2}`1$NnNm;7~mK3su|
+Y8?x4+kwhJ3rvLx|07*qoM6N<$g3n>2Hvj+t
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/machine.png b/Resources/Textures/_Lust/Languages/LanguageIcons/machine.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d56c75f3b40f58af7650b6f0f8403412bde79ee
+GIT binary patch
+literal 276
+zcmV+v0qg#WP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px#&PhZ;R9J=Wmaz_lAP|QCHf3;ial6;BkH-`ESVngSXEqiG7uHUfR3n8-4Vdzc
+ze=d0Ufg(^S{5v;aL0#9wk%fg2003hQN6)>w`;o<eiPHd2UR71p1FW?GfO(!dTA4_0
+z;1OEbbsYd;nx<9W_k9ZhTI=yWUzP<3FnApUQp(+&h@u*}jsX|jz5kZv2BI4vqLzr-
+zWDUd;d<OWv-lCNHcn0`O=puguz6pG|?f@oV1EKeMEXfUc|A?BV8E~SBd<~pEIg{K#
+aq3{Aw$vC6{fOTyE0000<MNUMnLSTYD8Ex4B
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/moth.png b/Resources/Textures/_Lust/Languages/LanguageIcons/moth.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..b42e5b3cd6dc2930f46f22c1e57f1f0af88a1aa8
+GIT binary patch
+literal 487
+zcmV<D0T}*?P)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$p-DtRR9J=Wmc2>?K@>($M3Tmc5Fwxt3j-FmR{8=KS_XoK*a!+1f;K`bi-?Va
+zg%6OBh+wIOFQApJohb|`1Pq9=G0j-)-gS3&m#js|DEYd(^TT}S-aE4})PGYYmsXWr
+zT1A~d(%<9s)@azk-Tu4+SUP!(McGJP7Y}v;$Y$!1)|*E_oGfl{S#h(h0J51$a5*|H
+z%qf7>*E<0Dor1N&_!t0B&9_JgFpq#Z<>M1v&f?QE;3AUWT=9JGzC3&Oafnb0Bq$m<
+zfzS$-E?8Jyh5)A$qil#Bs}{PQwl$tiS>NrN5Te!NGXOTOS}{x@(6bAi+$wFV=3Jb{
+zWjr}yuWtbGaD59d=OXh6I9*^nlw5XS8=lygb9=oWU!K<>z`4jA0#5GN*1a>raw|mi
+z?hs-&35O`Hzyl1NfG;o7|8kcXk4g~G|4uwL3qZAW2mv>z^#A=u9Zb9leO=&xzssI?
+zUYtvHw-Z)P?AcYG&D?qj3X!na(L4gWeyZ4#zpuU3trKh~ZWJy;x&}@lvVQxw8&!XY
+dz)(Z=OW)~or*0l{J(~ak002ovPDHLkV1fjN(?b9N
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/plaf.png b/Resources/Textures/_Lust/Languages/LanguageIcons/plaf.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..eb63d0300b570025ff9823f31ee97842a6a66a0c
+GIT binary patch
+literal 3040
+zcmV<63m^1}P)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F8000U*X+uL$b5ch_
+zAW20-HZeIiHZ3wPF#rHaiJentRFl~jJ>U1G7g|CDq=eq2N(mrRLKToIO;kb>Ae0b8
+zLa`S_1xFMW5v<6lfCG*WMaGIK76wHH>;p20sN>)$qGEX~vexLDH}Ac9vwz&R*S_c6
+zd(S@S0?-12MdB<}1t3!_lScS^vt#4p*~BhDfeZw&1K{zqB_WZ1Q2+pezFc;8gugd@
+z0Rr&4SFr-zunGucv*G`PDqkX%0U%)jFkK+b<^v!F0FaR@lPL620AMDiD>#Z%aA|B@
+zJOHYp;3<=Q+UJ-_?y2B{OtAm}RlHdu$P_4eI{>W9kqZR?STFz-=7@y30N70cFv^f;
+ziU6=Tirh>gFB<?yQ|K}wKNSFH3jj1}R0J0QHv@n~OZkc?eZ^(MJei^>Zk8lpDoRO}
+zvCa7AY&#bh4m&`Yn<13RtipKwbe>ee=4NF|c;bA3$(lbyP2nv&(3k6E=i=mKWp8cw
+zl~Mn7^KU}Y+e!8^{BzF`R_7P(ui~<*061d+*rqR9(hh*;H2@lSzGy~!0h9{>ny!9T
+z4@)sGsWO?w)y5__H`iJu<XbBY{R96q;BVlo`>Ykm{b3K=N0`i$XUNzJ-}qS>S#l{m
+zTf*ZD*;aoZ;(wg@*YB7XAxsuZg<`&t9W4^(io_{wZkAXel8Lg!Y?1gsHSr&&{RxwE
+z4FHVlkHB1D4Jucefc@GDI0hB4gx!j+|IxQ#ax^G@UX0%G<lKJ-^6#gjC5k0ml=3-`
+z8xh6k%cVJ!dx~!fc%XnXFhLV^!4S;A3hcod+`tojVHSi!6vV-N;6o~8f)sLL39N)d
+zD27e24Ju#{R6`Ba!%=946L1zTz!kU#J#ZKLVF;eWD7=OV1VM-h9bq7vh#q2$SR(ca
+z2bqcZBEd)m5{D!rDTo-6BTJCgNHJ21R3Q718svNAIC2)bgmfdfkpW}``5k$OVkiw|
+zqB^JvYJ+l6FEj{^Lg%3==t6W6T7Ygu%h4+IFxrHkMX#VeXg~TC9m4>lVk}G_v%)wS
+z7YoJWv1Ck&EyIeiGOP-#$6B!t>;~44J;UDO2sj3gjkChJ;R0}TaD3cC+%nt-Tm|kB
+zt_jzUyMY_Pjp9Dy>3D6tCEgVuh>yjm;B)bX_%i$fd?Wrmz6U>qe@!3|SOimoGa-Nw
+zM@S<qCTt+=A~X=r5V{G2gfSwKs7bUWx)Vc*Jfe(PNZdg@Ogv4zP8=e>AyG+sBzuw{
+zDV`)Its<3?YDuR^*Ga>q39<^=nCwapB@4*;<Pvf<xs`mCJVc(Ls8UQR?vyA>8f7J=
+zoKjCYPq{~VNu^Q^s4moSs))LRT24Jey+|FPzNM+rENEO>0!>caNIOV7L%U6TNvG3I
+z=$`a=x{SV&UPC`ee?Whu#89$U3RDs(Emx{kYErtc^jw*&Y^?01JYRW{a+&fm<*Uli
+zRLCkODqIzw$}*KomE$UXDr2e)RXf#C)lAh5s<o<@R3EDm)lAfU)dXq<YWvmBsSPqP
+zh9QH?;4@Y;su|}QLrenGlo`lOV-_>NV|Fn|)z#D;)T7n&)GO6bs`s-nmI*76mBA`u
+z9cA^h-c8Y&;x$D$W&M=;Dc7frYfRPf)DUVEX*6i`XuQ*8Yx-)YYi`zT*1WHU)3VSC
+z*UHt}t#w}O*;M9Kx2gQ8MN^MXy`zn4TWCjUFV^0#-KjmMqpRbuBhlHRb57@(E=$)_
+zH%)h|?kU|7J%-*)J(1p4z0-P6*y?OAb_Tng-Oe7>*VYfvm+SA-@6w+zFg2KCu*#sp
+z;JzWnkYku^xYe-DaMVc8D8y)qQJv8pW3n;FIMsN&afk7^iK$79$y$?UlgFkSrh%r5
+zOzTYVnbFNW%odtencXxem~+h2&3Bn!vp_8zEmAEiEv{OkmQI!;%Uzb;)9}+=rirIj
+zP3yCwS$SFISk+k#ShK8ytyft$TR*okvWd6ZY|~-$(bmy6!?xP?uAQ3QEW1^9t#-fL
+zTiEmMEA4Mir%(5rzI=Mi^cN164nl|B4!0Z`jv<a~9orl~I5|5>o$8%NoQ<3lop(C-
+zahRMi&IZm!7rcwN%W{_!E^l3(TxG6DU4L`4a!Yrsb$dL+bcS$7^^8Gx19zVLKKK5a
+z?3sx(_s;D1(D&eZRCzq~H1rgB9`GFYGWSaJI_&k_+typ^-RM2eb>%MQp7Fta{C$di
+zx_s4q=lE9mKJYW}OYy7o8})beU+jM-03Q$(usNVFP$!TdSQ9up%X!w)S?xizpva(#
+zpohU0!P4N?5Hw^~$d-_MvyEqqXE%pJXkh4;(EDMgVGF~43@3z#g;$0@im;1V644RK
+zh+Gg^8~HlQJE|n=?i{l@@;PnM%FzkYHPPcSJ~5>+{joN&OJlFZX~l`+TH=ZE(eVf3
+z$L9LZ-8Oe9!7-sQp?99?yu5jr=4;K*n16DC@&ew1V~P00n8ez|_q<SE6>lslFllGf
+zD4)yU&VMTK6l@iY2;GIH!r^51<kIBFDefs-QbtleQp-}GiMXN)(TlWzv^{C#>7nTd
+z(?4azWHe-wG7~e8i`B&G;`S`vth}sliKV1a(!bDk;kJdN(je)9Y$SVLc8iQDlgK*d
+zX7V-ift;B+l{s&6qjQhtspg6EI`b{^*XIu}@>}%nV%%c>;<hFFOI9u!Sn9QO-!f!b
+z(z3SYhRX|<53TTDacCuFW%|mWR@ts9UG-{p%<9$xoq`nwgKPZP)D<cfN(=kex~<)_
+z4!2IUu511D^*h#oED{u5F19T$D}KL$zv1#XcHfkL^J!!9#;y{llHHpKo5Y)XH+yV8
+zRH|CKsB~~k$d;z9?5#yxUu|2k?NXUT*`Do`?egvY<-z4GJB)U0+VQ?3wW6oeyRu=Y
+z_RjS?$9D;KUEl4wyMB+(p5i_4_KNo2+ULKosmi3PY(HUt&i+T$(bXN_a=xuOpmm`5
+zz=wn4gZ+mh4z<@f*VNQ%*Ot_wb@IBA!wHA4edqICOTAV7z6Mr9@ew#8Kl0@J#P55L
+z1|4lX#yM91gYgeL8ySs7O-NII(`a*QbAL-*OZV|v$J<)nS{r|~{_)@m{S%cZ)lZh3
+zqMRx?_38AY(_?2OXP%u+IXl?4pzZFt*mF1A!`r*g2c5ro!SBMk4zG^W7u_$Oxa4~2
+z_+`%J<||HDnmQdj8-H^Asj<tctLduq)s|~6*IK)0bf3EJasBKKpBoo$2Hw2VGrOm|
+zcTVrEzJ$L1TY_7UZ)e<oaVO`_#N8G5@b`-DtK2Vpp#7lgXY-#M`kneu4)_doK8$>L
+zcaT5$^q1^k-VYT#qCYAd)*G&QZ2$Pgh~LPyCv%?+J(WD2cvkqU>aRPWn?3*GH_zWX
+zM`K5aUPxbj`hCMo&6fvXIlO8c3mbdzI`j3!c+nfpH;3MG-gdl;c{e<f`=0o|{Db+2
+z){j9S?|sVr^yyy%nDhLfy0c3F00Cf0L_t(oh3%BTOT$nUg})Ympi&W)R$Uwv1cxqW
+zC<PZ0T?BCyT<qf3O&q$oDM$y!!KwZej&6dBPVMUAXu(C%p{UOxy(PH~<`pc-kZ%cj
+zxjD%>@4gEO2?-%Mm8x+nRnss1biagcN!b=I9~>Eg(djGzBe^*M?#jE?8bL&!z<_O`
+zIM3!C-@5J(Nk#}uDDnh)-aqMurJcRN=fe||0K7dv0nn^J!XG^oc><w5AbTthGVQB4
+z6{JV>{me>HOBy^$#6JP;T%(=WuP*?|@0S6%T=0KlQ@tOb1lDUe2H>`|mGa&Xjb#8B
+zpI?Lk$6bPhuB3L}*ggf|do|}<k350SnJk{w+*v>6I_%ZCcKp?90kCm$1wgv3cYj!l
+z*Bt1YgoWdCgXfPWk<ZsA06!n^0L&KF0C;IU`050y*N!#uNkI32oCb|;oh^|k&}rQ;
+iM|w{D7m+8Bknjt;4pi)dWv3AU0000<MNUMnLSTabMBDQK
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/slime.png b/Resources/Textures/_Lust/Languages/LanguageIcons/slime.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..e034c5e44984a950d5b3582360799936b31f2679
+GIT binary patch
+literal 293
+zcmV+=0owkFP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px#-$_J4R9J=Wmaz?kFc3vwqO^#DmUS3|9Vlohs3>UIf`%Pfhn9)~oFY2OL>O$O
+z2&4E_Mn0YVA2tR8fq&<5RFGwvvT2kg$?AC+hQr<fPn)7&@-j_G@}ejJh@!}<;j%0;
+zR9Kks&wwd;9LG+L^E{W~t_lAP2xpVK)?aQQEWo%2wDSxO?{=CdaQJTcXJ8yhIj;(!
+zu4~vxCWg{91)wa;RiCcwtQO#(0TX@S15i~J08P_?b_;6e0BGCxrgwoL$z=D>^9-M4
+ru#xzi`~MGU2^1EI&vLneKp^l22$Dj*#3dv000000NkvXXu0mjfwRCtA
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/spider.png b/Resources/Textures/_Lust/Languages/LanguageIcons/spider.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..00cbe49e5a5248be217227e314b460c14f06f984
+GIT binary patch
+literal 532
+zcmV+v0_**WP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$&PhZ;R9J=W)<H{DQ4|O8-z#S{(-bMRC<xNPg6Iphsa0Q~O%Qzm*Fpq+02i)Y
+zgu7a{?n4A^+JsPAk&sDNYEzAl(`zwv;J)Ea&>|dY{+r9?o_Dza|M{PL9)0xjzavXG
+zGpA?sbl*5=fOnr(v-G?=FbKZaYlURThep85^%ogjK6f=w<2ujb$iHCqH^^XO<YW$&
+zqgAlE^C5%jsTSkGN{jKx&?vaKc)yTj?aexPvh)~yscnJ0t>@~;l?*1w&g9T&?nhj9
+z=n4$PP09`rnk^3u4-S(sUw*I*s%>TV8++i^+#T>}@gdm#u~Wzw%BJWI1p-l{W7QVp
+zaBb|zC&o#b2X5TG33j)>7UG+~nk3y5ilj;$x&j4v#?7Pe&!3vk;lkuaFgiR|`1soG
+z>m<ydKYa%F8g;O?`KmPE?$2#{r3(u0Ky*XgG(6DR|J}MEnAi5cwbpuTjh8T#NYNV#
+z1cG^GpaNcRtP~WvboL6EUz!ICa|`@|dA#}Iu@h|%MP5ClK(|>Ch(4Z~nk8ZU{_|Us
+zsTrQ>R`Z^m1*J0}(5)Lbw>RkGYKdZ<{}W~CO$EAnB5GJR)yhy-^Ujz<SD=qR`uGiK
+WZP-=~-G1i)0000<MNUMnLSTZ%b^Ve6
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/syndibot.png b/Resources/Textures/_Lust/Languages/LanguageIcons/syndibot.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3e88069c7206da67a84cd2818e0f540b334d6d6
+GIT binary patch
+literal 287
+zcmV+)0pR|LP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px#*-1n}R9J=WmOl=HFc?Rl#tvOsxB>|W(Bp9euHfKh(8-0QS72da>A>QkO+;(M
+zKZVA=rOB_&2j3%Yfk5Ej*|;X7C@RJj6+!?|Rh5YjpVn^2JYY_&22AHt%1Onw)&SIX
+zZK5|5iyPSWS(N8F07|J&em$P{07{DUbKW!!^fc&)fh^0cc{0Nb_+h|8O848RkFgwD
+z$Xf#?K%!ggE*OFz2F$*G<pTH4TWy^;C!vdV8|c%43)dZBSf_y@_xV&7H{kpuisQK8
+l%O=)o;1``67B>(G+yD-?Inw%{RQ&(|002ovPDHLkV1lO;d1e3r
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/vox.png b/Resources/Textures/_Lust/Languages/LanguageIcons/vox.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..5f0457b47c45c74ee520d8082cb064d9e37678c4
+GIT binary patch
+literal 276
+zcmeAS@N?(olHy`uVBq!ia0vp^3LwnE1|*BCs=fdz#^NA%Cx&(BWL^R}=R92;Ln2y}
+z6C_v{CoExhbK<gLZv8KueBs;Ie9l>|yap2&cg|{Hoz8OR`82aA7pYQS)g>Lg6B+p#
+zdBP{XD}M9f$HZ(N9+#FQ4ebY3Fc&;y3UZA7n8*eMZOh`KK{VSk^IJS1aBmyWe@O`m
+ziEVOrEvC9W6&w$I7EXD_cCdfNAKBlEVGG-VW-uHyVK{w$2SXLd+&c^(7qlw}hMrL1
+zV|<ite#NT6k;UoljrG1$-T`gj#h4$x`~SUdWfGjpPg)LWfSiAUi9!FP{-b${_uYX$
+OWAJqKb6Mw<&;$VLGGlQ7
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/vulp.png b/Resources/Textures/_Lust/Languages/LanguageIcons/vulp.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4cbf7011040e604ffcbc2aa6c808d05e7e02b26a
+GIT binary patch
+literal 456
+zcmV;(0XP1MP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$f=NU{R9J=WmA^|uQ545NR?v__i)2GfL=jZdVh%PIL0b?cN)T8ywL3Q1-;hKU
+zK{d44zaUX>k$zAR5j7>{U}@1%+?FnM)#rPfaUbDlJLkN2-#g#;J?BA_CKiPKUJ>?t
+zMZI+^TIznY2GM3#kX^+hOW&Dw0kC`e<g!z@i*pr_ynlTDs&0jI6>zt=0&sSj24G}(
+zK;{KNZ-1Xsm)F;db_L2DyBP2ZfVuev01CxoO$T0GWB`coq-{-ub_Gm5AUp5r?y7n~
+zWMvhAwfHgsTZbnAB%&b!aC?0N!1>*aa^Laen+r!OAl+Rn9=BVG1Ho|s28Tugc-Ytn
+zAor|#O1lE4Q!qU<3pP9;$roO$*7vqI0Z1BI<(b+QXqX2&JsnD%IWUxX%ohM4NlM9U
+zSHN^z$vK{!n1UbQ*lIK8j_xbwW2scdXK7c!bQ8)AmJh0(%Uv()(le!T={aUNR{_~c
+yY3F5sIU`He*aGbeSdxf_gq(=K!1)UNd%gfvzkyVp^2L_`0000<MNUMnLSTY%rM}ew
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/Textures/_Lust/Languages/LanguageIcons/zombie.png b/Resources/Textures/_Lust/Languages/LanguageIcons/zombie.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..f0f367fbe8aff77d0bea0a2067f7e17808cc7972
+GIT binary patch
+literal 441
+zcmV;q0Y?6bP)<h;3K|Lk000e1NJLTq001BW001Be1^@s6b9#F800001b5ch_0Itp)
+z=>Px$b4f%&R9J=WmN84iKorOS6^Cod98m}rB#=QUbx_w1-Lm^J{1kqGegSv)ZVrMj
+z#laGA2!u)@gS3-iP0uCiU@xRKxqGLn9n5dNckkZ&zq|JisHmveGBq9JR@+G^cHYn@
+z``ytAK!$6Wa1B#?A1P9i`N^pR0GRU#08nR*6+1iR0DzD82>scVq(o^706<_d1Qr99
+ziu5|&fohL5LXr8!{viU36=uGUuseGBQsnC4zVMt<6<DV~n<{Oz0;scwH2XP^Fz3-X
+zJ6S0<ssIQoC<AZ}6LB1;b(Nt~=tltn!1JD#&+-EhnTZ-x5IsS~F3Bpx@dOw()d#cB
+znB-5{sd}C6;QB2*!?F|FAy1o)Alo18kmKfc3=n6+#$N#x&yZAtOeV>JVdCj=yt1C1
+z5pj<4mv^`4MZT2^$Tm~?wE_Zf=+`{>c}wZE95n$<=sy4C4#?1chIwS~2sD30rP69U
+j3H96dzu4+Hu28W6?E-)v+$WFe00000NkvXXu0mjf1CGJ-
+
+literal 0
+HcmV?d00001
+
+diff --git a/Resources/keybinds.yml b/Resources/keybinds.yml
+index 33742bd991..c5422b0604 100644
+--- a/Resources/keybinds.yml
++++ b/Resources/keybinds.yml
+@@ -196,2 +196,5 @@ binds:
+   key: Y
++- function: OpenLanguageMenu
++  type: State
++  key: L
+ - function: TextCursorSelect
